@@ -177,6 +177,7 @@ class MaskBaseDataset(Dataset):
         self.std = std
         self.val_ratio = val_ratio
         self.train_df = pd.read_csv(train_csv_path)
+        self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
 
         self.transform = None
         self.setup()
@@ -189,7 +190,7 @@ class MaskBaseDataset(Dataset):
         gender_labels = df['gender']
         age_labels = df['age']
         """
-        self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
+        
         num_person = len(self.train_df) # 2697
         for i in range(num_person):
             gender = self.train_df.loc[i, 'gender']
@@ -302,8 +303,8 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         super().__init__(data_dir, mean, std, val_ratio)
 
     @staticmethod
-    def _split_profile(profiles, val_ratio):
-        length = len(profiles) # 사람 수 2700
+    def _split_profile(num_person, val_ratio):
+        length = num_person # 사람 수 2700
         n_val = int(length * val_ratio) # 540
 
         val_indices = set(random.choices(range(length), k=n_val)) # 0-2699 중 540개 선택
@@ -314,35 +315,34 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         }
 
     def setup(self):
-        profiles = os.listdir(self.data_dir) # 000001_female_Asian_45, ...
-        profiles = [profile for profile in profiles if not profile.startswith(".")] #숨김파일이 아닌 profiles
-        split_profiles = self._split_profile(profiles, self.val_ratio) #split_profiles["train"] = range(2200)
 
+        num_person = len(self.train_df) # 2700
+        split_profiles = self._split_profile(num_person, self.val_ratio) #split_profiles["train"] = range(2200)
+        
         cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
-            for _idx in indices:
-                profile = profiles[_idx] # 2700개 중 하나
-                img_folder = os.path.join(self.data_dir, profile) # /opt/ml/input/data/train/images/000001_female_Asian_45
-                for file_name in os.listdir(img_folder): 
-                    _file_name, ext = os.path.splitext(file_name) # mask1.jpg
-                    if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
-                        continue
+            for i in indices:
+                label_path = self.train_df.loc[i, 'path']
+                gender = self.train_df.loc[i, 'gender']
+                age = self.train_df.loc[i, 'age']
+                label_path = os.path.join(self.data_dir, label_path) # /opt/ml/input/data/train/images/000001_female_Asian_45
 
-                    img_path = os.path.join(self.data_dir, profile, file_name)  # (/opt/ml/input/data/train/images, 000004_male_Asian_54, mask1.jpg)
-                    mask_label = self._file_names[_file_name] # MaskLabels.MASK
-
-                    id, gender, race, age = profile.split("_") # csv 기반으로 변환
-                    gender_label = GenderLabels.from_str(gender)
-                    age_label = AgeLabels.from_number(age)
+                picture_list = os.listdir(label_path) # incorrect_mask.jpg, ...
+                picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
+                for j in picture_list:
+                    img_path = os.path.join(label_path, j) # full path
+                    gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
+                    age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
+                    mask_label = self._file_names[j.split('.')[0]]
 
                     self.image_paths.append(img_path)
                     self.mask_labels.append(mask_label)
                     self.gender_labels.append(gender_label)
                     self.age_labels.append(age_label)
-
+                    
                     self.indices[phase].append(cnt)
                     cnt += 1
-
+       
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
 
