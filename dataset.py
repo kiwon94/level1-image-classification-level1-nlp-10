@@ -108,11 +108,12 @@ class AgeLabels(int, Enum):
             return cls.OLD
 
 
-class ModifyTrainData: 
+class ModifyTrainData:
     duplicated_id = '003397-1'
-    delete_id = ['000225', '000357', '003798'] # 남녀 구분이 가지 않음
+    # delete_id = ['000225', '000357', '003798'] # 남녀 구분이 가지 않음
     mail_to_femail = ['001498-1','004432', '005223']
-    femail_to_mail = ['000010','000667','000664','000725','000736','000767','000817','003780','004281','006359','006360','006361','006362','006363','006364','006504', '006424', '003223', '003113', '001509']
+    femail_to_mail = ['006359','006360','006361','006362','006363','006364']
+    # 기존 label 유지 ['000010','000667','000664','000725','000736','000767','000817','003780','004281','006504', '006424', '003223', '003113', '001509']
     # norm_to_incorrect = ['005227', '000020', '004418']
     age_to_young = ['001009', '001064', '001637', '001666', '001852', ]
     age_to_old = ['004348']
@@ -132,11 +133,11 @@ class ModifyTrainData:
         for i in cls.age_to_young:
             train_df.loc[train_df['id'] == i,'age'] = 29 # middle -> young
 
-        for i in cls.delete_id: # 남녀 구분 x
-            del_idx = train_df[train_df['id'] == i].index
-            train_df = train_df.drop(del_idx)
+        # for i in cls.delete_id: # 남녀 구분 x
+        #     del_idx = train_df[train_df['id'] == i].index
+        #     train_df = train_df.drop(del_idx)
         
-        train_df.reset_index(drop = True, inplace=True) # 삭제된 data index를 비워놓기 때문에 index reset (0-2697)
+        # train_df.reset_index(drop = True, inplace=True) # 삭제된 data index를 비워놓기 때문에 index reset (0-2697)
 
         # for i in cls.norm_to_incorrect: # 파일명 확인
         #     fpath = str(train_df[train_df['id'] == i]['path'].values[0])
