@@ -15,13 +15,14 @@ def load_model(saved_model, num_classes, device):
         num_classes=num_classes
     )
 
-    # tarpath = os.path.join(saved_model, 'best.tar.gz')
+    # tarpath = os.path.join(saved_model, 'best.tar.gz') # 여러 개의 모델을 한 번에 돌려보기 위해 만들어 놓은 건가?
     # tar = tarfile.open(tarpath, 'r:gz')
     # tar.extractall(path=saved_model)
 
     model_path = os.path.join(saved_model, 'best.pth')
-    model.load_state_dict(torch.load(model_path, map_location=device))
-
+    model.load_state_dict(torch.load(model_path, map_location=device)) # Loads an object saved with :func:`torch.save` from a file
+                                                                       # Copies parameters and buffers from state_dict into this module and its descendants
+ 
     return model
 
 
@@ -38,13 +39,13 @@ def inference(data_dir, model_dir, output_dir, args):
 
     img_root = os.path.join(data_dir, 'images')
     info_path = os.path.join(data_dir, 'info.csv')
-    info = pd.read_csv(info_path)
+    info = pd.read_csv(info_path) # info.ImageID 로 접근 가능한 이유
 
     img_paths = [os.path.join(img_root, img_id) for img_id in info.ImageID]
-    dataset = TestDataset(img_paths, args.resize)
+    dataset = TestDataset(img_paths, args.resize) # default=(96, 128)
     loader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=args.batch_size,
+        batch_size=args.batch_size, # default=1000
         num_workers=8,
         shuffle=False,
         pin_memory=use_cuda,
@@ -60,7 +61,7 @@ def inference(data_dir, model_dir, output_dir, args):
             pred = pred.argmax(dim=-1)
             preds.extend(pred.cpu().numpy())
 
-    info['ans'] = preds
+    info['ans'] = preds # info.csv에 ans feature 업데이트
     info.to_csv(os.path.join(output_dir, f'output.csv'), index=False)
     print(f'Inference Done!')
 
@@ -76,8 +77,8 @@ if __name__ == '__main__':
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_EVAL', '/opt/ml/input/data/eval'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_CHANNEL_MODEL', './model'))
-    parser.add_argument('--output_dir', type=str, default=os.environ.get('SM_OUTPUT_DATA_DIR', './output'))
-
+    parser.add_argument('--output_dir', type=str, default=os.environ.get('SM_OUTPUT_DATA_DIR', './output')) # os.environ.get : Python에서 환경 변수를 가져 오는 데 사용
+                                                                                                            
     args = parser.parse_args()
 
     data_dir = args.data_dir
