@@ -65,6 +65,7 @@ class F1Loss(nn.Module):
         return 1 - f1.mean()
 
 
+# 위에서 만들어 둔 클래스를 한 번에 관리하기 위함. 나중에 key 값으로 loss를 설정해줘야 함.
 _criterion_entrypoints = {
     'cross_entropy': nn.CrossEntropyLoss,
     'focal': FocalLoss,
@@ -84,7 +85,7 @@ def is_criterion(criterion_name):
 def create_criterion(criterion_name, **kwargs):
     if is_criterion(criterion_name):
         create_fn = criterion_entrypoint(criterion_name)
-        criterion = create_fn(**kwargs)
+        criterion = create_fn(**kwargs) # 각 클래스별로 넣어줄 인자값이 다르니 **kwargs로 넣어둠
     else:
         raise RuntimeError('Unknown loss (%s)' % criterion_name)
     return criterion

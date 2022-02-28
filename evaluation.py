@@ -19,7 +19,8 @@ def evaluation(gt_dir, pred_dir):
 
     gt = pd.read_csv(os.path.join(gt_dir, 'gt.csv'))
     pred = pd.read_csv(os.path.join(pred_dir, 'output.csv'))
-    cls_report = classification_report(gt.ans.values, pred.ans.values, labels=np.arange(num_classes), output_dict=True, zero_division=0)
+    cls_report = classification_report(gt.ans.values, pred.ans.values, labels=np.arange(num_classes), output_dict=True, zero_division=0) # ans 라는 feature의 value 값으로 가져옴
+    # classification_report : Build a text report showing the main classification metrics
     acc = cls_report['accuracy'] * 100
     f1 = np.mean([cls_report[str(i)]['f1-score'] for i in range(num_classes)])
 
@@ -36,10 +37,10 @@ def evaluation(gt_dir, pred_dir):
 
     return json.dumps(results)
 
-#if __name__ == '__main__':
-#    gt_dir = os.environ.get('SM_GROUND_TRUTH_DIR')
+# if __name__ == '__main__':
+#    gt_dir = os.environ.get('SM_GROUND_TRUTH_DIR') # 환경 변수에 저장해놓은 값을 가져오는
 #    pred_dir = os.environ.get('SM_OUTPUT_DATA_DIR')
-#
+
 #    from pprint import pprint
 #    results = evaluation(gt_dir, pred_dir)
 #    pprint(results)
