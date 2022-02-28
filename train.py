@@ -11,6 +11,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -82,6 +83,36 @@ def increment_path(path, exist_ok=False):
         n = max(i) + 1 if i else 2
         return f"{path}{n}"
 
+class GradualWarmupScheduler(_LRScheduler):
+    def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
+        self.multiplier = multiplier
+        self.total_epoch = total_epoch
+        self.after_scheduler = after_scheduler
+        self.finished = False
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        print("self")
+        print(self.base_lrs)
+        if self.last_epoch > self.total_epoch:
+            if self.after_scheduler:
+                if not self.finished:
+                    self.after_scheduler.base_lrs = [base_lr * self.multiplier for base_lr in self.base_lrs]
+                    self.finished = True
+                return self.after_scheduler.get_lr()
+            return [base_lr * self.multiplier for base_lr in self.base_lrs]
+
+        return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
+
+
+    def step(self, epoch=None, metrics=None):
+        if self.finished and self.after_scheduler:
+            if epoch is None:
+                self.after_scheduler.step(None)
+            else:
+                self.after_scheduler.step(epoch - self.total_epoch)
+        else:
+            return super(GradualWarmupScheduler, self).step(epoch)
 
 def train(data_dir, model_dir, args):
     seed_everything(args.seed)
@@ -91,6 +122,7 @@ def train(data_dir, model_dir, args):
     # -- settings
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
+    scaler = torch.cuda.amp.GradScaler()
 
     # -- dataset
     dataset_module = getattr(import_module("dataset"), args.dataset)  # default: BaseAugmentation
@@ -144,7 +176,15 @@ def train(data_dir, model_dir, args):
         lr=args.lr,
         weight_decay=5e-4
     )
-    scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+
+    # Warmup Scheduler
+    # hyperparmeter : multiplier, lr, epoch
+    if args.LR_scheduler:
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
+        scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
+    
+    else :
+        scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
     # -- logging
     logger = SummaryWriter(log_dir=save_dir)
@@ -165,12 +205,24 @@ def train(data_dir, model_dir, args):
 
             optimizer.zero_grad()
 
-            outs = model(inputs)
-            preds = torch.argmax(outs, dim=-1)
-            loss = criterion(outs, labels)
+            # using precision
+            if args.precision:
+                with torch.cuda.amp.autocast():
+                    outs = self.model(inputs)
+                    preds = torch.argmax(outs, dim=-1)
+                    loss = self.criterion(outs, labels)
+            
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
-            loss.backward()
-            optimizer.step()
+            else:
+                outs = model(inputs)
+                preds = torch.argmax(outs, dim=-1)
+                loss = criterion(outs, labels)
+
+                loss.backward()
+                optimizer.step()
 
             loss_value += loss.item()
             matches += (preds == labels).sum().item()
@@ -244,7 +296,7 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=100, help='number of epochs to train (default: 1)')
     parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
     parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=list, default=[128, 96], help='resize size for image when training')
@@ -262,6 +314,10 @@ if __name__ == '__main__':
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
+
+    # Bag of tricks args
+    parser.add_argument('--LR_scheduler', type=bool, default=True, help='using cosine LR scheduler')
+    parser.add_argument('--precision', type=bool, default=True, help='using cosine FP16 precision')
 
     args = parser.parse_args()
     print(args)
