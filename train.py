@@ -263,7 +263,7 @@ def kfold_train(data_dir, model_dir, args):
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
             # -- logging
-            logger = SummaryWriter(log_dir=save_dir)
+            logger = SummaryWriter(log_dir=save_dir) # Tensorboard의 Summary Writer 사용
             with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:#./model/exp/config.json
                 json.dump(vars(args), f, ensure_ascii=False, indent=4)
 
@@ -431,7 +431,12 @@ def train(data_dir, model_dir, args):
     )
     dataset.set_transform(transform) # dataset에 transform 할당
 
-    # -- data_loader
+    # train start
+    val_ratio = args.val_ratio
+    
+    skf = StratifiedKFold(n_splits=1, shuffle=True, random_state=42)
+    train_idx, valid_idx = skf.split(dataset.train_df, dataset.train_df['folder_class'])
+    dataset.setup(train_idx, valid_idx)
     train_set, val_set = dataset.split_dataset() # random split 
 
     train_loader = DataLoader(
