@@ -334,6 +334,8 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         super().__init__(data_dir, flag_kfold, mean, std, val_ratio)
         
     def setup(self, train_idx, valid_idx):
+        profiles = os.listdir(self.data_dir)
+        profiles = [profile for profile in profiles if not profile.startswith(".")]
         self.train_idx = train_idx
         self.valid_idx = valid_idx
         split_profiles = {
