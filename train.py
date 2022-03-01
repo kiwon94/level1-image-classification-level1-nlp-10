@@ -203,49 +203,51 @@ def kfold_train(data_dir, model_dir, args):
             drop_last=True,
             )
 
-            model_module = getattr(import_module("model"), args.model)  # default: BaseModel
-            if args.pretrained and args.model.startswith('densenet'): 
-                model = model_module(
-                    pretrained = True,
-                ).to(device)
+            # model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+            model_module = import_module("model")
+            model = model_module.get_model(args.model, num_classes).to(device)
+            # if args.pretrained and args.model.startswith('densenet'): 
+            #     model = model_module(
+            #         pretrained = True,
+            #     ).to(device)
 
-                num_ftrs = model.classifier.in_features
-                model.classifier = nn.Linear(num_ftrs, num_classes) #densenet의 마지막 layer output 차원 변경
+            #     num_ftrs = model.classifier.in_features
+            #     model.classifier = nn.Linear(num_ftrs, num_classes) #densenet의 마지막 layer output 차원 변경
 
-            elif args.pretrained and 'resnet' in args.model:
-                model = model_module(
-                    pretrained = True,
-                ).to(device)
+            # elif args.pretrained and 'resnet' in args.model:
+            #     model = model_module(
+            #         pretrained = True,
+            #     ).to(device)
 
-                num_ftrs = model.fc.in_features
-                model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
+            #     num_ftrs = model.fc.in_features
+            #     model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
 
 
-            elif args.pretrained and args.model.startswith('vgg'):
-                model = model_module(
-                    pretrained = True,
-                ).to(device)
+            # elif args.pretrained and args.model.startswith('vgg'):
+            #     model = model_module(
+            #         pretrained = True,
+            #     ).to(device)
 
-                # num_ftrs = model.classifier.in_features
-                # print(num_ftrs)
-                # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
-                model.classifier[6] = nn.Linear(4096, num_classes)
+            #     # num_ftrs = model.classifier.in_features
+            #     # print(num_ftrs)
+            #     # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
+            #     model.classifier[6] = nn.Linear(4096, num_classes)
 
-            elif args.pretrained and args.model.startswith('ViT'):
-                model = model_module(
-                    'B_32_imagenet1k', pretrained = True,
-                    num_classes = num_classes
-                ).to(device)
-            
             # elif args.pretrained and args.model.startswith('ViT'):
-            #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-            #     model = model_module("google/vit-base-patch16-224").to(device)
-            #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
+            #     model = model_module(
+            #         'B_32_imagenet1k', pretrained = True,
+            #         num_classes = num_classes
+            #     ).to(device)
+            
+            # # elif args.pretrained and args.model.startswith('ViT'):
+            # #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
+            # #     model = model_module("google/vit-base-patch16-224").to(device)
+            # #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
 
-            else:
-                model = model_module(
-                    num_classes=num_classes
-            ).to(device)
+            # else:
+            #     model = model_module(
+            #         num_classes=num_classes
+            # ).to(device)
 
             model = torch.nn.DataParallel(model) # 병렬처리
 
@@ -348,9 +350,9 @@ def kfold_train(data_dir, model_dir, args):
                         preds = torch.argmax(outs, dim=-1)
 
                         loss_item = criterion(outs, labels).item() # loss
-                        print(loss_item)
+                        # print(loss_item)
                         acc_item = (labels == preds).sum().item() # accuracy\
-                        print(acc_item)
+                        # print(acc_item)
                         val_loss_items.append(loss_item)
                         val_acc_items.append(acc_item)
                         val_target.extend(labels.tolist())
@@ -467,49 +469,51 @@ def train(data_dir, model_dir, args):
     )
 
     # -- model
-    model_module = getattr(import_module("model"), args.model)  # default: BaseModel
-    if args.pretrained and args.model.startswith('densenet'): 
-        model = model_module(
-            pretrained = True,
-        ).to(device)
+    # model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+    model_module = import_module("model")
+    model = model_module.get_model(args.model, num_classes).to(device)
+    # if args.pretrained and args.model.startswith('densenet'): 
+    #     model = model_module(
+    #         pretrained = True,
+    #     ).to(device)
 
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes) #densenet의 마지막 layer output 차원 변경
+    #     num_ftrs = model.classifier.in_features
+    #     model.classifier = nn.Linear(num_ftrs, num_classes) #densenet의 마지막 layer output 차원 변경
 
-    elif args.pretrained and 'resnet' in args.model:
-        model = model_module(
-            pretrained = True,
-        ).to(device)
+    # elif args.pretrained and 'resnet' in args.model:
+    #     model = model_module(
+    #         pretrained = True,
+    #     ).to(device)
 
-        num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
+    #     num_ftrs = model.fc.in_features
+    #     model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
 
 
-    elif args.pretrained and args.model.startswith('vgg'):
-        model = model_module(
-            pretrained = True,
-        ).to(device)
+    # elif args.pretrained and args.model.startswith('vgg'):
+    #     model = model_module(
+    #         pretrained = True,
+    #     ).to(device)
 
-        # num_ftrs = model.classifier.in_features
-        # print(num_ftrs)
-        # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
-        model.classifier[6] = nn.Linear(4096, num_classes)
+    #     # num_ftrs = model.classifier.in_features
+    #     # print(num_ftrs)
+    #     # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
+    #     model.classifier[6] = nn.Linear(4096, num_classes)
 
-    elif args.pretrained and args.model.startswith('ViT'):
-        model = model_module(
-            'B_32_imagenet1k', pretrained = True,
-            num_classes = num_classes
-        ).to(device)
-    
     # elif args.pretrained and args.model.startswith('ViT'):
-    #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-    #     model = model_module("google/vit-base-patch16-224").to(device)
-    #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
+    #     model = model_module(
+    #         'B_32_imagenet1k', pretrained = True,
+    #         num_classes = num_classes
+    #     ).to(device)
+    
+    # # elif args.pretrained and args.model.startswith('ViT'):
+    # #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
+    # #     model = model_module("google/vit-base-patch16-224").to(device)
+    # #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
 
-    else:
-        model = model_module(
-            num_classes=num_classes
-    ).to(device)
+    # else:
+    #     model = model_module(
+    #         num_classes=num_classes
+    # ).to(device)
 
     model = torch.nn.DataParallel(model) # 병렬처리
 
@@ -681,7 +685,7 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=20, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskSplitByProfileDataset)')
     parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
