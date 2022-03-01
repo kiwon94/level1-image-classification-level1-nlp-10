@@ -695,7 +695,7 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=bool, default=True, help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=bool, default=True, help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=bool, default=False, help='using KfoldCV, default is True')
 
     args = parser.parse_args()
     print(args)
