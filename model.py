@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
+import timm
 
 densenet = models.densenet201
 resnet50 = models.resnet50
@@ -40,8 +41,39 @@ class BaseModel(nn.Module):
         return self.fc(x)
 
 
-# Custom Model Template
-class MyModel(nn.Module):
+
+# Resnet
+class Resnet101(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.model = timm.create_model("resnet101", pretrained=True)
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes, bias=True)
+
+    def forward(self, x):
+        return self.model(x)
+
+class Resnet200(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.model = timm.create_model("resnet200", pretrained=True)
+        self.model.classifier = nn.Linear(self.model.fc.in_features, num_classes, bias=True)
+
+    def forward(self, x):
+        return self.model(x)
+
+class Resnet50(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.model = timm.create_model("resnet50", pretrained=True)
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes, bias=True)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+
+# EfficienNetModel
+class Model_Efficientnet_b3a(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
 
@@ -50,10 +82,46 @@ class MyModel(nn.Module):
         2. 나만의 모델 아키텍쳐를 디자인 해봅니다.
         3. 모델의 output_dimension 은 num_classes 로 설정해주세요.
         """
+        self.model = timm.create_model("efficientnet_b3a", pretrained=True)
+        self.model.classifier = nn.Linear(in_features=1536, out_features=num_classes, bias=True)
 
     def forward(self, x):
         """
         1. 위에서 정의한 모델 아키텍쳐를 forward propagation 을 진행해주세요
         2. 결과로 나온 output 을 return 해주세요
         """
-        return x
+        return self.model(x)
+
+class Model_Efficientnet_b1(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        """
+        1. 위와 같이 생성자의 parameter 에 num_claases 를 포함해주세요.
+        2. 나만의 모델 아키텍쳐를 디자인 해봅니다.
+        3. 모델의 output_dimension 은 num_classes 로 설정해주세요.
+        """
+        self.model = timm.create_model("efficientnet_b1", pretrained=True)
+        self.model.classifier = nn.Linear(self.model.classifier.in_features, num_classes, bias=True)
+
+    def forward(self, x):
+        """
+        1. 위에서 정의한 모델 아키텍쳐를 forward propagation 을 진행해주세요
+        2. 결과로 나온 output 을 return 해주세요
+        """
+        return self.model(x)
+
+
+# from coatnet import coatnet_0, coatnet_1, coatnet_2, coatnet_3, coatnet_4
+# class CoatNet(nn.Module):
+#     def __init__(self, num_classes):
+#         super().__init__()
+#         self.model = coatnet_0()
+#         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes, bias=True)
+#     def forward(self, x):
+#         return self.model(x)
+
+        
+# if __name__ == '__main__':
+#    model = Model_Efficientnet_b1(18)
+#    print(model)
+

@@ -164,8 +164,9 @@ def kfold_train(data_dir, model_dir, args):
 
     # kfold start
     val_ratio = args.val_ratio
+    # skf = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
     
-    skf = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
+    skf = StratifiedKFold(n_splits=int(2), shuffle=True, random_state=42)
     for i,(train_idx, valid_idx) in enumerate(skf.split(dataset.train_df, dataset.train_df['folder_class'])):
             # print(i)
             # print(f"train_len: {len(train_idx)}")
@@ -214,29 +215,6 @@ def kfold_train(data_dir, model_dir, args):
 
                 num_ftrs = model.fc.in_features
                 model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
-
-
-            elif args.pretrained and args.model.startswith('vgg'):
-                model = model_module(
-                    pretrained = True,
-                ).to(device)
-
-                # num_ftrs = model.classifier.in_features
-                # print(num_ftrs)
-                # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
-                model.classifier[6] = nn.Linear(4096, num_classes)
-
-            elif args.pretrained and args.model.startswith('ViT'):
-                model = model_module(
-                    'B_32_imagenet1k', pretrained = True,
-                    num_classes = num_classes
-                ).to(device)
-            
-            # elif args.pretrained and args.model.startswith('ViT'):
-            #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-            #     model = model_module("google/vit-base-patch16-224").to(device)
-            #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
-
             else:
                 model = model_module(
                     num_classes=num_classes
@@ -252,7 +230,6 @@ def kfold_train(data_dir, model_dir, args):
                 lr=args.lr,
                 weight_decay=5e-4
             )
-
 
             # Warmup Scheduler
             # hyperparmeter : multiplier, lr, epoch
@@ -343,9 +320,7 @@ def kfold_train(data_dir, model_dir, args):
                         preds = torch.argmax(outs, dim=-1)
 
                         loss_item = criterion(outs, labels).item() # loss
-                        print(loss_item)
                         acc_item = (labels == preds).sum().item() # accuracy\
-                        print(acc_item)
                         val_loss_items.append(loss_item)
                         val_acc_items.append(acc_item)
                         val_target.extend(labels.tolist())
@@ -400,7 +375,7 @@ def kfold_train(data_dir, model_dir, args):
                         json.dump(config, config_json)
                         config_json.close()
                         break
-                    print() # ?
+                    print()
             
 
 
@@ -471,28 +446,6 @@ def train(data_dir, model_dir, args):
         num_ftrs = model.fc.in_features
         model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
 
-
-    elif args.pretrained and args.model.startswith('vgg'):
-        model = model_module(
-            pretrained = True,
-        ).to(device)
-
-        # num_ftrs = model.classifier.in_features
-        # print(num_ftrs)
-        # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
-        model.classifier[6] = nn.Linear(4096, num_classes)
-
-    elif args.pretrained and args.model.startswith('ViT'):
-        model = model_module(
-            'B_32_imagenet1k', pretrained = True,
-            num_classes = num_classes
-        ).to(device)
-    
-    # elif args.pretrained and args.model.startswith('ViT'):
-    #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-    #     model = model_module("google/vit-base-patch16-224").to(device)
-    #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
-
     else:
         model = model_module(
             num_classes=num_classes
@@ -508,7 +461,6 @@ def train(data_dir, model_dir, args):
         lr=args.lr,
         weight_decay=5e-4
     )
-
 
     # Warmup Scheduler
     # hyperparmeter : multiplier, lr, epoch
@@ -599,9 +551,8 @@ def train(data_dir, model_dir, args):
                 preds = torch.argmax(outs, dim=-1)
 
                 loss_item = criterion(outs, labels).item() # loss
-                print(loss_item)
-                acc_item = (labels == preds).sum().item() # accuracy\
-                print(acc_item)
+                # print(loss_item), print(acc_item)
+                acc_item = (labels == preds).sum().item() # accuracy
                 val_loss_items.append(loss_item)
                 val_acc_items.append(acc_item)
                 val_target.extend(labels.tolist())
@@ -668,20 +619,20 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=20, help='number of epochs to train (default: 1)')
-    parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
-    parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
+    parser.add_argument('--epochs', type=int, default=50, help='number of epochs to train (default: 1)')
+    parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskBaseDataset)')
+    parser.add_argument('--augmentation', type=str, default='CustomAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
-    parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
-    parser.add_argument('--valid_batch_size', type=int, default=64, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
-    parser.add_argument('--optimizer', type=str, default='SGD', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--batch_size', type=int, default=16, help='input batch size for training (default: 64)')
+    parser.add_argument('--valid_batch_size', type=int, default=16, help='input batch size for validing (default: 1000)')
+    parser.add_argument('--model', type=str, default='Resnet200', help='model type (default: BaseModel)')
+    parser.add_argument('--optimizer', type=str, default='AdamW', help='optimizer type (default: SGD)')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (default: 1e-3)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
     parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
+    parser.add_argument('--lr_decay_step', type=int, default=5, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
-    parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
+    parser.add_argument('--name', default='resnet', help='model save at {SM_MODEL_DIR}/{name}')
     
     parser.add_argument('--pretrained', type=bool, default=False, help='use pretrained model (default : False)')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop patience (default: 10)')
@@ -695,7 +646,7 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=bool, default=True, help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=bool, default=False, help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=bool, default=True, help='using KfoldCV, default is True')
 
     args = parser.parse_args()
     print(args)
@@ -705,6 +656,5 @@ if __name__ == '__main__':
 
     if(args.KfoldCV):
         kfold_train(data_dir,model_dir,args)
-    
     else:
         train(data_dir, model_dir, args)
