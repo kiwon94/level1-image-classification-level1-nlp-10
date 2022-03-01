@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torchvision.models as models
 
 densenet = models.densenet201
+densenet161 = models.densenet161
 resnet50 = models.resnet50
 resnet152 = models.resnet152
 wide_resnet101 = models.wide_resnet101_2
