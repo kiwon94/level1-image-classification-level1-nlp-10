@@ -101,7 +101,7 @@ def increment_path(path, exist_ok=False): # exp 폴더가 존재할시 expN 경�
         n = max(i) + 1 if i else 1 # exp2부터 시작하던 걸 exp1부터 시작하도록 변경
         return f"{path}{n}"
 
-class GradualWarmupScheduler(_LRScheduler):
+class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
@@ -177,6 +177,9 @@ def kfold_train(data_dir, model_dir, args):
             dataset.setup(train_idx, valid_idx)
             train_set, val_set = dataset.split_dataset()
 
+            # _,labels = dataset[6]
+            # print(labels)
+            print("debug")
             train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
@@ -209,12 +212,12 @@ def kfold_train(data_dir, model_dir, args):
                 weight_decay=5e-4
             )
 
-            if args.LR_scheduler:
+            if args.LR_scheduler=='GradualWarmupScheduler':
                 cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
                 scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
     
             else :
-                scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
             # -- logging
             logger = SummaryWriter(log_dir=save_dir) # Tensorboard의 Summary Writer 사용
@@ -578,7 +581,7 @@ if __name__ == '__main__':
     parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
-    parser.add_argument('--valid_batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
+    parser.add_argument('--valid_batch_size', type=int, default=64, help='input batch size for validing (default: 1000)')
     parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
     parser.add_argument('--optimizer', type=str, default='SGD', help='optimizer type (default: SGD)')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
@@ -596,7 +599,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
 
     # Bag of tricks args
-    parser.add_argument('--LR_scheduler', type=str, default=GradualWarmupScheduler, help='using cosine LR scheduler')
+    parser.add_argument('--LR_scheduler', type=str, default='GradualWarmupScheduler', help='using cosine LR scheduler')
     parser.add_argument('--precision', type=bool, default=True, help='using cosine FP16 precision')
 
     # Kfold CV
