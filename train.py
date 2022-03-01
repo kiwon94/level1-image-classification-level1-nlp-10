@@ -14,8 +14,9 @@ import numpy as np
 import torch
 
 import torch.nn as nn
-from torch.optim.lr_scheduler import *
 
+from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.lr_scheduler import StepLR
 from sklearn.model_selection import StratifiedKFold
 
 from torch.utils.data import DataLoader
