@@ -334,6 +334,8 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         super().__init__(data_dir, flag_kfold, mean, std, val_ratio)
         
     def setup(self, train_idx, valid_idx):
+        profiles = os.listdir(self.data_dir)
+        profiles = [profile for profile in profiles if not profile.startswith(".")]
         self.train_idx = train_idx
         self.valid_idx = valid_idx
         split_profiles = {
@@ -343,27 +345,29 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         
         cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
-            for i in indices:
-                label_path = self.train_df.loc[i, 'path']
-                gender = self.train_df.loc[i, 'gender']
-                age = self.train_df.loc[i, 'age']
-                label_path = os.path.join(self.data_dir, label_path) # /opt/ml/input/data/train/images/000001_female_Asian_45
+            for _idx in indices:
+                profile = profiles[_idx] # 2700개 중 하나
+                img_folder = os.path.join(self.data_dir, profile) # /opt/ml/input/data/train/images/000001_female_Asian_45
+                for file_name in os.listdir(img_folder): 
+                    _file_name, ext = os.path.splitext(file_name) # mask1.jpg
+                    if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
+                        continue
 
-                picture_list = os.listdir(label_path) # incorrect_mask.jpg, ...
-                picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
-                for j in picture_list:
-                    img_path = os.path.join(label_path, j) # full path
-                    gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-                    age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
-                    mask_label = self._file_names[j.split('.')[0]]
+                    img_path = os.path.join(self.data_dir, profile, file_name)  # (/opt/ml/input/data/train/images, 000004_male_Asian_54, mask1.jpg)
+                    mask_label = self._file_names[_file_name] # MaskLabels.MASK
+
+                    id, gender, race, age = profile.split("_") # csv 기반으로 변환
+                    gender_label = GenderLabels.from_str(gender)
+                    age_label = AgeLabels.from_number(age)
 
                     self.image_paths.append(img_path)
                     self.mask_labels.append(mask_label)
                     self.gender_labels.append(gender_label)
                     self.age_labels.append(age_label)
-                    
+
                     self.indices[phase].append(cnt)
                     cnt += 1
+
        
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
