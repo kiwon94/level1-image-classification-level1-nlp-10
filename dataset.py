@@ -173,17 +173,16 @@ class MaskBaseDataset(Dataset):
     gender_labels = []
     age_labels = []
 
-    def __init__(self, data_dir, flag_kfold=False, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    def __init__(self, data_dir, flag_strat, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
         self.val_ratio = val_ratio
         self.train_df = pd.read_csv(train_csv_path)
         self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
-
         self.transform = None
-        self.flag_kfold = flag_kfold
-        if flag_kfold == False:
+        self.flag_strat= flag_strat
+        if self.flag_strat == False: 
             self.setup()
         else :
             num_person = len(self.train_df) # 2700
@@ -325,9 +324,10 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         구현은 val_ratio 에 맞게 train / val 나누는 것을 이미지 전체가 아닌 사람(profile)에 대해서 진행하여 indexing 을 합니다
         이후 `split_dataset` 에서 index 에 맞게 Subset 으로 dataset 을 분기합니다.
     """
-    def __init__(self, data_dir, flag_kfold, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
+
+    def __init__(self, data_dir, flag_strat, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
-        super().__init__(data_dir, flag_kfold, mean, std, val_ratio)
+        super().__init__(data_dir, flag_strat, mean, std, val_ratio)
         
     def setup(self, train_idx, valid_idx):
         profiles = os.listdir(self.data_dir)

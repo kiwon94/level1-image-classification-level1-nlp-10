@@ -18,6 +18,8 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.lr_scheduler import StepLR
 from sklearn.model_selection import StratifiedKFold
+import pandas
+from sklearn.model_selection import train_test_split
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -133,6 +135,7 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
 
 
 def kfold_train(data_dir, model_dir, args):
+    print("kfold_train!")
     seed_everything(args.seed) # seed 정의
 
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
@@ -143,10 +146,14 @@ def kfold_train(data_dir, model_dir, args):
     scaler = torch.cuda.amp.GradScaler()
 
     # -- dataset
-    dataset_module = getattr(import_module("dataset"), args.dataset)   # In order to use KfoldCV, you have to set args.dataset = MaskSplitByProfileDataset
+    dataset_module = getattr(import_module("dataset"), args.dataset)   # default: MaskSplitByProfileDataset
+    if args.dataset == 'MaskSplitByProfileDataset':
+        bool_strat = True
+    else :
+        bool_strat = False
     dataset = dataset_module( # MaskSplitByProfileDataset 생성
         data_dir=data_dir, # /opt/ml/input/data/train/images
-        flag_kfold = args.KfoldCV
+        flag_strat= bool_strat
     )
     num_classes = dataset.num_classes  # 18 
     
@@ -180,7 +187,6 @@ def kfold_train(data_dir, model_dir, args):
 
             # _,labels = dataset[6]
             # print(labels)
-            print("debug")
             train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
@@ -241,7 +247,7 @@ def kfold_train(data_dir, model_dir, args):
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
             # -- logging
-            logger = SummaryWriter(log_dir=save_dir)
+            logger = SummaryWriter(log_dir=save_dir) # Tensorboard의 Summary Writer 사용
             with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:#./model/exp/config.json
                 json.dump(vars(args), f, ensure_ascii=False, indent=4)
 
@@ -266,7 +272,7 @@ def kfold_train(data_dir, model_dir, args):
                     optimizer.zero_grad()
 
                     # using precision
-                    if args.precision:
+                    if args.precision=='True':
                         with torch.cuda.amp.autocast():
                             outs = model(inputs)
                             preds = torch.argmax(outs, dim=-1)
@@ -380,6 +386,7 @@ def kfold_train(data_dir, model_dir, args):
 
 
 def train(data_dir, model_dir, args):
+    print("train!")
     seed_everything(args.seed)
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
 
@@ -389,11 +396,14 @@ def train(data_dir, model_dir, args):
     scaler = torch.cuda.amp.GradScaler()
 
     # -- dataset
-    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskBaseDataset
-    dataset = dataset_module( # MaskBaseDataset 생성
+    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskSplitByProfileDataset
+    if args.dataset == 'MaskSplitByProfileDataset': # 
+        bool_strat = True
+    else :
+        bool_strat = False
+    dataset = dataset_module( # MaskSplitByProfileDataset 생성
         data_dir=data_dir, # /opt/ml/input/data/train/images
-        # mean=None,
-        # std=None
+        flag_strat= bool_strat
     )
     num_classes = dataset.num_classes  # 18 
     
@@ -407,7 +417,11 @@ def train(data_dir, model_dir, args):
     )
     dataset.set_transform(transform) # dataset에 transform 할당
 
-    # -- data_loader
+    # train start
+    val_ratio = args.val_ratio
+    train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
+    # print(train_idx)
+    dataset.setup(train_idx.index, valid_idx.index)
     train_set, val_set = dataset.split_dataset() # random split 
 
     train_loader = DataLoader(
@@ -497,7 +511,7 @@ def train(data_dir, model_dir, args):
             optimizer.zero_grad()
 
             # using precision
-            if args.precision:
+            if args.precision=='True':
                 with torch.cuda.amp.autocast():
                     outs = model(inputs)
                     preds = torch.argmax(outs, dim=-1)
@@ -643,10 +657,15 @@ if __name__ == '__main__':
 
     # Bag of tricks args
     parser.add_argument('--LR_scheduler', type=str, default='GradualWarmupScheduler', help='using cosine LR scheduler')
-    parser.add_argument('--precision', type=bool, default=True, help='using cosine FP16 precision')
+    parser.add_argument('--precision', type=str, default='True', help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=bool, default=True, help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=str, default='True', help='using KfoldCV, default is True')
+
+    # Stratify & Kfold CV 관련 옵션 tip
+    # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
+    # Kfold를 안하고 strat도 하기 싫다면 --KfoldCv = False --dataset = MaskBaseDataset
+    
 
     args = parser.parse_args()
     print(args)
@@ -654,7 +673,7 @@ if __name__ == '__main__':
     data_dir = args.data_dir
     model_dir = args.model_dir
 
-    if(args.KfoldCV):
+    if args.KfoldCV=='True':
         kfold_train(data_dir,model_dir,args)
     else:
         train(data_dir, model_dir, args)
