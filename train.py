@@ -432,8 +432,6 @@ def train(data_dir, model_dir, args):
     dataset.set_transform(transform) # dataset에 transform 할당
 
     # train start
-    val_ratio = args.val_ratio
-    
     skf = StratifiedKFold(n_splits=1, shuffle=True, random_state=42)
     train_idx, valid_idx = skf.split(dataset.train_df, dataset.train_df['folder_class'])
     dataset.setup(train_idx, valid_idx)
