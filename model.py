@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
 
+densenet = models.densenet201
 
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
