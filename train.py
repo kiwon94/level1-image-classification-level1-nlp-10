@@ -140,7 +140,7 @@ def kfold_train(data_dir, model_dir, args):
     # -- settings
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-
+    scaler = torch.cuda.amp.GradScaler()
 
     # -- dataset
     dataset_module = getattr(import_module("dataset"), args.dataset)   # In order to use KfoldCV, you have to set args.dataset = MaskSplitByProfileDataset
@@ -198,10 +198,51 @@ def kfold_train(data_dir, model_dir, args):
             drop_last=True,
             )
 
-            model_module = getattr(import_module("model"), args.model)  # default: BaseModel 
-            model = model_module(num_classes=num_classes).to(device)
-            model = torch.nn.DataParallel(model) # 모델을 병렬로 실행(다수의 GPU에서 작업하기 위함)
+            model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+            if args.pretrained and args.model.startswith('densenet'): 
+                model = model_module(
+                    pretrained = True,
+                ).to(device)
 
+                num_ftrs = model.classifier.in_features
+                model.classifier = nn.Linear(num_ftrs, num_classes) #densenet의 마지막 layer output 차원 변경
+
+            elif args.pretrained and 'resnet' in args.model:
+                model = model_module(
+                    pretrained = True,
+                ).to(device)
+
+                num_ftrs = model.fc.in_features
+                model.fc = nn.Linear(num_ftrs, num_classes) #resnet의 마지막 layer output 차원 변경
+
+
+            elif args.pretrained and args.model.startswith('vgg'):
+                model = model_module(
+                    pretrained = True,
+                ).to(device)
+
+                # num_ftrs = model.classifier.in_features
+                # print(num_ftrs)
+                # model.classifier = nn.Linear(num_ftrs, num_classes) #vgg의 마지막 layer output 차원 변경
+                model.classifier[6] = nn.Linear(4096, num_classes)
+
+            elif args.pretrained and args.model.startswith('ViT'):
+                model = model_module(
+                    'B_32_imagenet1k', pretrained = True,
+                    num_classes = num_classes
+                ).to(device)
+            
+            # elif args.pretrained and args.model.startswith('ViT'):
+            #     feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
+            #     model = model_module("google/vit-base-patch16-224").to(device)
+            #     model.classifier = nn.Linear(model.config.hidden_size, num_classes)
+
+            else:
+                model = model_module(
+                    num_classes=num_classes
+            ).to(device)
+
+            model = torch.nn.DataParallel(model) # 병렬처리
 
             # -- loss & metric
             criterion = create_criterion(args.criterion)  # default: cross_entropy
@@ -212,40 +253,59 @@ def kfold_train(data_dir, model_dir, args):
                 weight_decay=5e-4
             )
 
-            if args.LR_scheduler=='GradualWarmupScheduler':
+
+            # Warmup Scheduler
+            # hyperparmeter : multiplier, lr, epoch
+            if args.LR_scheduler == 'GradualWarmupScheduler' :
                 cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
                 scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
-    
-            else :
+            
+            elif args.LR_scheduler == 'StepLR' :
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
             # -- logging
-            logger = SummaryWriter(log_dir=save_dir) # Tensorboard의 Summary Writer 사용
-            with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f: # #./model/exp/config.json
+            logger = SummaryWriter(log_dir=save_dir)
+            with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:#./model/exp/config.json
                 json.dump(vars(args), f, ensure_ascii=False, indent=4)
 
             best_val_acc = 0
-            best_val_loss = np.inf # loss는 낮게 가져가야 좋기에, 초기값을 '무한'으로 설정
-            for epoch in range(args.epochs): # 위에서 정의한 변수를 가지고 학습 진행
+            best_val_loss = np.inf # 무한
+            best_val_f1 = 0
+
+            early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
+
+            for epoch in range(args.epochs): # epoch 
                 # train loop
                 model.train()
                 loss_value = 0
                 matches = 0
                 for idx, train_batch in enumerate(train_loader):
                     inputs, labels = train_batch # img, label
+                    # inputs = inputs.type(torch.FloatTensor).to(device)
                     inputs = inputs.to(device)
+                    
                     labels = labels.to(device)
 
-                    optimizer.zero_grad() # 초기화
+                    optimizer.zero_grad()
 
-                    outs = model(inputs) 
-                    preds = torch.argmax(outs, dim=-1) # outs.shape = [batch_size,18]
-                                                    # preds.shape = 18
-                                                    # labels.shape = 18
-                    loss = criterion(outs, labels)
+                    # using precision
+                    if args.precision:
+                        with torch.cuda.amp.autocast():
+                            outs = model(inputs)
+                            preds = torch.argmax(outs, dim=-1)
+                            loss = criterion(outs, labels)
                     
-                    loss.backward()
-                    optimizer.step()
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+
+                    else:
+                        outs = model(inputs)
+                        preds = torch.argmax(outs, dim=-1)
+                        loss = criterion(outs, labels)
+
+                        loss.backward()
+                        optimizer.step()
 
                     loss_value += loss.item() # loss 합
                     matches += (preds == labels).sum().item() # 정답을 맞힌 수
@@ -271,20 +331,25 @@ def kfold_train(data_dir, model_dir, args):
                     model.eval()
                     val_loss_items = []
                     val_acc_items = []
+                    val_target = []
+                    val_labels = []
                     figure = None
                     for val_batch in val_loader:
                         inputs, labels = val_batch
+                        # inputs = inputs.type(torch.FloatTensor).to(device)
                         inputs = inputs.to(device)
                         labels = labels.to(device)
-
                         outs = model(inputs)
                         preds = torch.argmax(outs, dim=-1)
 
                         loss_item = criterion(outs, labels).item() # loss
-                        acc_item = (labels == preds).sum().item() # accuracy
+                        print(loss_item)
+                        acc_item = (labels == preds).sum().item() # accuracy\
+                        print(acc_item)
                         val_loss_items.append(loss_item)
                         val_acc_items.append(acc_item)
-
+                        val_target.extend(labels.tolist())
+                        val_labels.extend(preds.tolist())
                         if figure is None:
                             # [1000, 3, 128, 96]
                             inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
@@ -296,20 +361,47 @@ def kfold_train(data_dir, model_dir, args):
 
                     val_loss = np.sum(val_loss_items) / len(val_loader) # 18900 * 0.2 // 1000
                     val_acc = np.sum(val_acc_items) / len(val_set) # 3780
+                    val_f1 = f1_score(val_target, val_labels, average='macro')
                     best_val_loss = min(best_val_loss, val_loss)
                     if val_acc > best_val_acc:
                         print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
                         torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
                         best_val_acc = val_acc
+                    
+                    if val_f1 > best_val_f1:
+                        print(f"New best model for val f1 : {val_f1:4.2%}! saving the best model..")
+                        torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
+                        best_val_f1 = val_f1
+
                     torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
                     print(
-                        f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
-                        f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
+                        f"[Val] acc : {val_acc:4.2%} || "
+                        f"best acc : {best_val_acc:4.2%} || "
+                        f"[Val] f1 : {val_f1:4.2%} || "
+                        f"best f1 : {best_val_f1:4.2%} || "
+                        f"loss: {val_loss:4.2}, best loss: {best_val_loss:4.2}"
                     )
                     logger.add_scalar("Val/loss", val_loss, epoch)
                     logger.add_scalar("Val/accuracy", val_acc, epoch)
+                    logger.add_scalar("Val/f1", val_f1, epoch)
                     logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
+
+                    early_stopping(val_loss, model)
+
+                    if early_stopping.early_stop:
+                        print("Early stopping epoch : ", epoch)
+
+                        config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
+                        config = json.load(config_json)
+                        config_json.close()
+                        config["early stop"] = epoch
+
+                        config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
+                        json.dump(config, config_json)
+                        config_json.close()
+                        break
                     print() # ?
+            
 
 
 def train(data_dir, model_dir, args):
@@ -425,7 +517,7 @@ def train(data_dir, model_dir, args):
         scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
     
     elif args.LR_scheduler == 'StepLR' :
-        scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
     # -- logging
     logger = SummaryWriter(log_dir=save_dir)
