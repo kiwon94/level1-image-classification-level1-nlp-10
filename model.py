@@ -4,6 +4,10 @@ import torch.nn.functional as F
 import torchvision.models as models
 
 densenet = models.densenet201
+resnet50 = models.resnet50
+resnet152 = models.resnet152
+wide_resnet101 = models.wide_resnet101_2
+vgg16 = models.vgg16
 
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
