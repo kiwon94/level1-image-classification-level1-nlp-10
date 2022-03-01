@@ -102,8 +102,10 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        elif value < 60:
-            return cls.MIDDLE
+        # elif value < 60:
+        #     return cls.MIDDLE
+        elif value < 55:
+             return cls.MIDDLE
         else:
             return cls.OLD
 
@@ -171,7 +173,7 @@ class MaskBaseDataset(Dataset):
     gender_labels = []
     age_labels = []
 
-    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    def __init__(self, data_dir, flag_kfold, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -180,7 +182,20 @@ class MaskBaseDataset(Dataset):
         self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
 
         self.transform = None
-        self.setup()
+        self.flag_kfold = flag_kfold
+        if flag_kfold == False:
+            self.setup()
+        else :
+            num_person = len(self.train_df) # 2700
+            self.train_df['folder_class']=int(0)
+            for i in range(num_person):
+                gender = self.train_df.loc[i, 'gender']
+                age = self.train_df.loc[i, 'age']
+
+                gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
+                age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
+                kfold_class = self.encode_kfold_class(gender_label,age_label) # kfold_class 0: male/young ~ 5: female/old
+                self.train_df.loc[i, 'folder_class']=kfold_class
         self.calc_statistics()
 
     def setup(self): # img_path, mask_label, gender_label, age_label
@@ -191,10 +206,14 @@ class MaskBaseDataset(Dataset):
         age_labels = df['age']
         """
         
-        num_person = len(self.train_df) # 2697
+        num_person = len(self.train_df)
         for i in range(num_person):
+
             gender = self.train_df.loc[i, 'gender']
             age = self.train_df.loc[i, 'age']
+
+            gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
+            age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
             label_path = self.train_df.loc[i, 'path']
             label_path = os.path.join(self.data_dir, label_path) # /opt/ml/input/data/train/images/000001_female_Asian_45
 
@@ -202,10 +221,9 @@ class MaskBaseDataset(Dataset):
             picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
             for j in picture_list:
                 img_path = os.path.join(label_path, j) # full path
-                gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-                age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
+                # gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
+                # age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
                 mask_label = self._file_names[j.split('.')[0]]
-
                 self.image_paths.append(img_path)
                 self.mask_labels.append(mask_label)
                 self.gender_labels.append(gender_label)
@@ -260,6 +278,10 @@ class MaskBaseDataset(Dataset):
     @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
         return mask_label * 6 + gender_label * 3 + age_label
+    
+    @staticmethod
+    def encode_kfold_class(gender_label, age_label) -> int:
+        return gender_label * 3 + age_label
 
     @staticmethod
     def decode_multi_class(multi_class_label) -> Tuple[MaskLabels, GenderLabels, AgeLabels]: # decoding 
@@ -267,6 +289,12 @@ class MaskBaseDataset(Dataset):
         gender_label = (multi_class_label // 3) % 2
         age_label = multi_class_label % 3
         return mask_label, gender_label, age_label
+
+    @staticmethod
+    def decode_kfold_class(kfold_label) -> Tuple[GenderLabels, AgeLabels]: # decoding 
+        gender_label = (kfold_label // 3) % 2
+        age_label = kfold_label % 3
+        return gender_label, age_label
 
     @staticmethod
     def denormalize_image(image, mean, std):
@@ -290,6 +318,9 @@ class MaskBaseDataset(Dataset):
         return train_set, val_set #dataset 반환
 
 
+
+
+
 class MaskSplitByProfileDataset(MaskBaseDataset):
     """
         train / val 나누는 기준을 이미지에 대해서 random 이 아닌
@@ -298,26 +329,17 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         이후 `split_dataset` 에서 index 에 맞게 Subset 으로 dataset 을 분기합니다.
     """
 
-    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
+    def __init__(self, data_dir, flag_kfold, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
-        super().__init__(data_dir, mean, std, val_ratio)
-
-    @staticmethod
-    def _split_profile(num_person, val_ratio):
-        length = num_person # 사람 수 2700
-        n_val = int(length * val_ratio) # 540
-
-        val_indices = set(random.choices(range(length), k=n_val)) # 0-2699 중 540개 선택
-        train_indices = set(range(length)) - val_indices # 0-4499 중 val_indices 차집합
-        return {
-            "train": train_indices,
-            "val": val_indices
+        super().__init__(data_dir, flag_kfold, mean, std, val_ratio)
+        
+    def setup(self, train_idx, valid_idx):
+        self.train_idx = train_idx
+        self.valid_idx = valid_idx
+        split_profiles = {
+            "train": self.train_idx,
+            "val": self.valid_idx
         }
-
-    def setup(self):
-
-        num_person = len(self.train_df) # 2700
-        split_profiles = self._split_profile(num_person, self.val_ratio) #split_profiles["train"] = range(2200)
         
         cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
