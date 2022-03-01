@@ -612,9 +612,9 @@ def train(data_dir, model_dir, args):
                 preds = torch.argmax(outs, dim=-1)
 
                 loss_item = criterion(outs, labels).item() # loss
-                print(loss_item)
+                # print(loss_item)
                 acc_item = (labels == preds).sum().item() # accuracy\
-                print(acc_item)
+                # print(acc_item)
                 val_loss_items.append(loss_item)
                 val_acc_items.append(acc_item)
                 val_target.extend(labels.tolist())
