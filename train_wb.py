@@ -29,7 +29,6 @@ from loss import create_criterion
 
 # wandb
 import wandb
-wandb.init(project="test-project", entity="boostcamp_nlp_10")
 
 def seed_everything(seed): # seed 고정
     torch.manual_seed(seed)
@@ -655,7 +654,7 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='resnet', help='model save at {SM_MODEL_DIR}/{name}')
     
     parser.add_argument('--pretrained', type=bool, default=False, help='use pretrained model (default : False)')
-    parser.add_argument('--early_stop', type=int, default=7, help='early stop patience (default: 10)')
+    parser.add_argument('--early_stop', type=int, default=3, help='early stop patience (default: 10)')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
@@ -674,7 +673,7 @@ if __name__ == '__main__':
     
 
     args = parser.parse_args()
-    wandb.config = vars(args)
+    wandb.init(project="test-project", entity="boostcamp_nlp_10", config = vars(args))
 
     # print(args)
     print(wandb.config)
