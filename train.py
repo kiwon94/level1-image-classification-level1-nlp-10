@@ -617,6 +617,8 @@ if __name__ == '__main__':
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
     # Kfold를 안하고 strat도 하기 싫다면 --KfoldCv = False --dataset = MaskBaseDataset
+
+    #albumentations 사용: pip install albumentations
     
 
     args = parser.parse_args()
