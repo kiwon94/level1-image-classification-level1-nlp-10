@@ -443,6 +443,14 @@ def train(data_dir, model_dir, args):
                         torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
                         best_val_loss = val_loss
 
+                    if best_val_acc < val_acc:
+                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                        best_val_acc = val_acc
+
+                    if best_val_f1 < val_f1:
+                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                        best_val_f1 = val_f1
+                    
                     torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
                     print(
                         f"[Val] acc : {val_acc:4.2%} || "
@@ -638,8 +646,15 @@ def train(data_dir, model_dir, args):
                 if best_val_loss > val_loss:
                     print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
                     torch.save(model, f"{save_dir}/{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
-
                     best_val_loss = val_loss
+                    
+                if best_val_acc < val_acc:
+                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                        best_val_acc = val_acc
+
+                if best_val_f1 < val_f1:
+                    print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                    best_val_f1 = val_f1
                 
                 torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
                 print(
