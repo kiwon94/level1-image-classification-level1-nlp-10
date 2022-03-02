@@ -130,7 +130,7 @@ def inception(classes):
     return inception
 
 def densenet(classes):
-    densenet = torchvision.models.densenet161(pretrained=True)
+    densenet = torchvision.models.densenet201(pretrained=True)
     densenet.classifier = nn.Linear(in_features=2208, out_features=classes, bias=True)
     stdv = 1.0/np.sqrt(classes)
     densenet.classifier.bias.data.uniform_(-stdv, stdv)

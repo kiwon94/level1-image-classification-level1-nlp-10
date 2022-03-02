@@ -1,7 +1,7 @@
 import argparse
 import os
 from importlib import import_module
-
+import model as models
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -10,16 +10,14 @@ from dataset import TestDataset, MaskBaseDataset
 
 
 def load_model(saved_model, num_classes, device):
-
-    model_module = import_module("model")
-    model = model_module.get_model(args.model, num_classes)
-
+    model = models.get_model(args.model, num_classes)
+    
     # tarpath = os.path.join(saved_model, 'best.tar.gz')
     # tar = tarfile.open(tarpath, 'r:gz')
     # tar.extractall(path=saved_model)
 
-    model_path = os.path.join(saved_model, 'best.pth')
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model_path = os.path.join(saved_model, 'best.pth') # best model path
+    model.load_state_dict(torch.load(model_path).module.state_dict()) # 파라미터 load
 
     return model
 

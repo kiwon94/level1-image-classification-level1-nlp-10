@@ -290,7 +290,7 @@ def train(data_dir, model_dir, args):
                 collator = CutMixCollator(args.cutmix_alpha)
                 train_criterion = create_criterion('Cutmix_'+args.criterion)
             else:
-                collator = torch.utils.data.dataloader.default_collate
+                collator = None
 
             # imbalanced_sampler
             imbalanced_sampler = ImbalancedDatasetSampler(dataset=train_set, callback_get_label=get_label)
@@ -439,7 +439,7 @@ def train(data_dir, model_dir, args):
 
                     if best_val_loss > val_loss:
                         print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                        torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
+                        torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pth")
                         best_val_loss = val_loss
 
                     if best_val_acc < val_acc:
@@ -497,7 +497,7 @@ def train(data_dir, model_dir, args):
             collator = CutMixCollator(args.cutmix_alpha)
             train_criterion = create_criterion('Cutmix_'+args.criterion)
         else:
-            collator = torch.utils.data.dataloader.default_collate
+            collator = None
 
 
         # imbalanced_sampler
@@ -585,7 +585,6 @@ def train(data_dir, model_dir, args):
                     correct_targets = preds.eq(targets).sum().item()
                     correct_shuffled_targets = preds.eq(shuffled_targets).sum().item()
                     matches += (lam * correct_targets + (1 - lam) * correct_shuffled_targets)
-                    print(matches)
                 else:
                     correct_ = preds.eq(labels).sum().item()
                     matches += correct_
@@ -646,7 +645,7 @@ def train(data_dir, model_dir, args):
 
                 if best_val_loss > val_loss:
                     print(f"New best model for val loss : {val_loss:4.2%}! saving the best model..")
-                    torch.save(model, f"{save_dir}/{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
+                    torch.save(model, f"{save_dir}/{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pth")
                     best_val_loss = val_loss
                     
                 if best_val_acc < val_acc:
@@ -729,9 +728,9 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=str2bool, default=True, help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=str2bool, default=True, help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=str2bool, default=False, help='using KfoldCV, default is True')
 
-    parser.add_argument('--use_cutmix', type=str2bool, default=True)
+    parser.add_argument('--use_cutmix', type=str2bool, default=False)
     parser.add_argument('--cutmix_alpha', type=float, default=1.0)
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
