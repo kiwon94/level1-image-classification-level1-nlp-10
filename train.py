@@ -111,10 +111,12 @@ def get_transform(dataset):
     # -- augmentation
     transform_module = getattr(import_module("dataset"), args.augmentation)  # default: BaseAugmentation
     transform = transform_module( # resizing, mean과 std로 정규화하는 transform
-        resize=args.resize,
-        mean=dataset.mean,
-        std=dataset.std,
-    )
+                                resize=args.resize,
+                                mean=dataset.mean,
+                                std=dataset.std,
+                                )
+        
+
     return transform
 def get_loss_optim(model):
     # -- loss & metric
@@ -630,6 +632,8 @@ if __name__ == '__main__':
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
     # Kfold를 안하고 strat도 하기 싫다면 --KfoldCv = False --dataset = MaskBaseDataset
+
+    #albumentations 사용: pip install albumentations
     
 
     args = parser.parse_args()
