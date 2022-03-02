@@ -483,6 +483,9 @@ def train(data_dir, model_dir, args):
             model = get_model(device) # fold 종료 후 model 재정의
             criterion, optimizer = get_loss_optim(model)
             scheduler = get_scheduler(optimizer)        
+            best_val_acc = 0
+            best_val_loss = np.inf # 무한
+            best_val_f1 = 0
 
     else: # no k fold
         train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
@@ -523,6 +526,7 @@ def train(data_dir, model_dir, args):
             train_set,
             batch_size=args.batch_size,
             sampler = sampler,
+            collate_fn=collator
             num_workers=multiprocessing.cpu_count()//2,
             shuffle=False,
             pin_memory=use_cuda,
@@ -644,7 +648,7 @@ def train(data_dir, model_dir, args):
                 val_f1 = f1_score(val_target, val_labels, average='macro')
 
                 if best_val_loss > val_loss:
-                    print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
+                    print(f"New best model for val loss : {val_loss:4.2%}! saving the best model..")
                     torch.save(model, f"{save_dir}/{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
                     best_val_loss = val_loss
                     
