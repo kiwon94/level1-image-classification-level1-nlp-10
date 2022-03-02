@@ -298,17 +298,17 @@ def train(data_dir, model_dir, args):
             # weight sampler
         
             # y_train_indices = train_set.indices
-            print(len(train_set))
+            # print(len(train_set))
             y_train = []
             for data in train_set:
                 y_train.append(data['label'])
 
             class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-            print(class_sample_count)
+            # print(class_sample_count)
             weight = 1. / class_sample_count
-            print(weight)
+            # print(weight)
             samples_weight = np.array([weight[t] for t in y_train])
-            print(samples_weight)
+            # print(samples_weight)
             samples_weight = torch.from_numpy(samples_weight)
             weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
 
@@ -333,6 +333,10 @@ def train(data_dir, model_dir, args):
                 pin_memory=use_cuda,
                 drop_last=True,
             )
+
+            best_val_acc = 0
+            best_val_loss = np.inf # 무한
+            best_val_f1 = 0
 
             for epoch in range(args.epochs): # epoch 
                 # train loop
@@ -439,7 +443,7 @@ def train(data_dir, model_dir, args):
 
                     if best_val_loss > val_loss:
                         print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                        torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
+                        torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pth")
                         best_val_loss = val_loss
 
                     if best_val_acc < val_acc:
@@ -506,15 +510,15 @@ def train(data_dir, model_dir, args):
         # weight sampler
         
         # y_train_indices = train_set.indices
-        print(len(train_set))
+        # print(len(train_set))
         y_train = []
         for data in train_set:
             y_train.append(data['label'])
 
         class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-        print(class_sample_count)
+        # print(class_sample_count)
         weight = 1. / class_sample_count
-        print(weight)
+        # print(weight)
         samples_weight = np.array([weight[t] for t in y_train])
         samples_weight = torch.from_numpy(samples_weight)
         weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
@@ -585,7 +589,6 @@ def train(data_dir, model_dir, args):
                     correct_targets = preds.eq(targets).sum().item()
                     correct_shuffled_targets = preds.eq(shuffled_targets).sum().item()
                     matches += (lam * correct_targets + (1 - lam) * correct_shuffled_targets)
-                    print(matches)
                 else:
                     correct_ = preds.eq(labels).sum().item()
                     matches += correct_
@@ -646,7 +649,7 @@ def train(data_dir, model_dir, args):
 
                 if best_val_loss > val_loss:
                     print(f"New best model for val loss : {val_loss:4.2%}! saving the best model..")
-                    torch.save(model, f"{save_dir}/{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pt")
+                    torch.save(model, f"{save_dir}/best.pth")
                     best_val_loss = val_loss
                     
                 if best_val_acc < val_acc:
