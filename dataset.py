@@ -12,6 +12,11 @@ from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
 
+# albumentations
+import albumentations
+import albumentations.pytorch
+import cv2
+
 IMG_EXTENSIONS = [
     ".jpg", ".JPG", ".jpeg", ".JPEG", ".png",
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
@@ -32,6 +37,29 @@ class BaseAugmentation:
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
         return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
+
+class AlbuAugmentation:
+    def __init__(self, resize, mean, std, **args):
+        self.transform = albumentations.Compose([
+            albumentations.Resize(resize[0],resize[1]),
+            albumentations.LongestMaxSize(max_size=max(resize)),
+            albumentations.PadIfNeeded(min_height=max(resize),
+                            min_width=max(resize),
+                            border_mode=cv2.BORDER_CONSTANT),
+            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
+            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
+                                albumentations.VerticalFlip(p=1)            
+                                ], p=1),
+            albumentations.OneOf([albumentations.MotionBlur(p=1),
+                                albumentations.OpticalDistortion(p=1),
+                                albumentations.GaussNoise(p=1)                 
+                                ], p=1),
+            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
+            albumentations.pytorch.transforms.ToTensorV2()])
+
+    def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
+        image_transform = self.transform(image=image) # albumentation 결과는 dict형으로 반환됨
+        return image_transform['image'].type(torch.float32) 
 
 
 class AddGaussianNoise(object):
@@ -273,6 +301,11 @@ class MaskBaseDataset(Dataset):
 
     def read_image(self, index): 
         image_path = self.image_paths[index]
+        if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
+            transformed_image = cv2.imread(image_path)
+            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
+            return transformed_image
+        
         return Image.open(image_path)
 
     @staticmethod
