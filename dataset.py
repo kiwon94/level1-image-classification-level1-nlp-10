@@ -55,14 +55,12 @@ class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
-            Resize(resize, Image.BILINEAR),
+            # Resize(resize, Image.BILINEAR),
             # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             RandomHorizontalFlip(p=0.5),
-            ToTensor(),
-            # RandomGrayscale,
             # Grayscale(num_output_channels=3),
+            ToTensor(),
             Normalize(mean=mean, std=std),
-            
         ])
 
     def __call__(self, image):
@@ -104,7 +102,7 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 55:
+        # elif value < 60:
         #     return cls.MIDDLE
         elif value < 60:
              return cls.MIDDLE
@@ -174,8 +172,8 @@ class MaskBaseDataset(Dataset):
     mask_labels = []
     gender_labels = []
     age_labels = []
-
-    def __init__(self, data_dir, flag_strat, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    # default mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)
+    def __init__(self, data_dir, flag_strat, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -243,6 +241,7 @@ class MaskBaseDataset(Dataset):
 
             self.mean = np.mean(sums, axis=0) / 255 # 왜 255로 나누지?
             self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
+
 
     def set_transform(self, transform):
         self.transform = transform
@@ -375,16 +374,15 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 
 
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
+    def __init__(self, img_paths, resize, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
-            Resize(resize, Image.BILINEAR),
+            # Resize(resize, Image.BILINEAR),
             # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             RandomHorizontalFlip(p=0.5),
-            ToTensor(),
-            # RandomGrayscale,
             # Grayscale(num_output_channels=3),
+            ToTensor(),
             Normalize(mean=mean, std=std),
         ])
         # self.transform = CustomAugmentation

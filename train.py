@@ -27,7 +27,6 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
 from dataset import MaskBaseDataset
 from loss import create_criterion
-from torchvision import datasets
 
 def seed_everything(seed): # seed 고정
     torch.manual_seed(seed)
@@ -432,6 +431,7 @@ def train(data_dir, model_dir, args):
         print(samples_weight)
         samples_weight = torch.from_numpy(samples_weight)
         sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
+        
         train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
@@ -613,7 +613,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default= 5e-4, help='optimizer weight decay(default: 5e-4)')
     parser.add_argument('--steplr_gamma', type=float, default= 0.5, help='StepLR gamma(default: 0.5)')
 
-    parser.add_argument('--pretrained', type=str, default='False', help='use pretrained model (default : False)')
+    parser.add_argument('--pretrained', type=str, default='True', help='use pretrained model (default : False)')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop patience (default: 10)')
 
     # Container environment
