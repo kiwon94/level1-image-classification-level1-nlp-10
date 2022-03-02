@@ -482,7 +482,9 @@ def train(data_dir, model_dir, args):
                         break
                     print() # ?
             model = get_model(device) # fold 종료 후 model 재정의
-                    
+            criterion, optimizer = get_loss_optim(model)
+            scheduler = get_scheduler(optimizer)        
+            
     else: # no k fold
         train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
         dataset.setup(train_idx.index, valid_idx.index)
