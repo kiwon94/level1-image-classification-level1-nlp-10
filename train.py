@@ -516,7 +516,6 @@ def train(data_dir, model_dir, args):
         weight = 1. / class_sample_count
         print(weight)
         samples_weight = np.array([weight[t] for t in y_train])
-        print(samples_weight)
         samples_weight = torch.from_numpy(samples_weight)
         weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
 
@@ -547,7 +546,6 @@ def train(data_dir, model_dir, args):
             loss_value = 0
             matches = 0
             for idx, (inputs,labels) in enumerate(train_loader):
-
                 # inputs = inputs.type(torch.FloatTensor).to(device)
                 inputs = inputs.to(device)
                 # Check this train procedure using Cutmix
@@ -555,7 +553,6 @@ def train(data_dir, model_dir, args):
                 if isinstance(labels, (tuple, list)) and args.use_cutmix==True:
                     targets, shuffled_targets, lam = labels
                     labels = (targets.to(device), shuffled_targets.to(device), lam)
-
                 else:
                     labels = labels.to(device)
 
@@ -580,17 +577,18 @@ def train(data_dir, model_dir, args):
                     loss.backward()
                     optimizer.step()
 
-                    loss_value += loss.item() # loss 합
-                    # Check this train procedure using Cutmix
-                    # If it is, using fixed accuracy method 
-                    if isinstance(labels, (tuple, list)) and args.use_cutmix==True:
-                        targets, shuffled_targets, lam = labels
-                        correct_targets = preds.eq(targets).sum().item()
-                        correct_shuffled_targets = preds.eq(shuffled_targets).sum().item()
-                        matches += (lam * correct_targets + (1 - lam) * correct_shuffled_targets)
-                    else:
-                        correct_ = preds.eq(labels).sum().item()
-                        matches += correct_
+                loss_value += loss.item() # loss 합
+                # Check this train procedure using Cutmix
+                # If it is, using fixed accuracy method 
+                if isinstance(labels, (tuple, list)) and args.use_cutmix==True:
+                    targets, shuffled_targets, lam = labels
+                    correct_targets = preds.eq(targets).sum().item()
+                    correct_shuffled_targets = preds.eq(shuffled_targets).sum().item()
+                    matches += (lam * correct_targets + (1 - lam) * correct_shuffled_targets)
+                    print(matches)
+                else:
+                    correct_ = preds.eq(labels).sum().item()
+                    matches += correct_
 
 
                 if (idx + 1) % args.log_interval == 0: # log_interval 마다 (default 20 step)
@@ -603,7 +601,7 @@ def train(data_dir, model_dir, args):
                     )
                     logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
                     logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx) # tensorboard
-
+                    wandb.log({"Train/loss": train_loss, "Train/accuracy": train_acc})
                     loss_value = 0
                     matches = 0
 
