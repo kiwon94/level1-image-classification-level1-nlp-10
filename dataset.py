@@ -285,7 +285,7 @@ class MaskBaseDataset(Dataset):
         
         image_transform = self.transform(image)
         # image_transform = image_transform.type(torch.uint8) # float을 uint8로 줄여 전송
-        return image_transform, multi_class_label # input = index, output = img & label
+        return {"image2tensor" : image_transform, "label" : multi_class_label} # input = index, output = img & label
 
     def __len__(self): # 18900
         return len(self.image_paths)
@@ -367,6 +367,11 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         super().__init__(data_dir, flag_strat, mean, std, val_ratio)
         
     def setup(self, train_idx, valid_idx):
+        self.image_paths = []
+        self.mask_labels = []
+        self.gender_labels = []
+        self.age_labels = []
+        self.indices[phase] = defaultdict(list)
         profiles = os.listdir(self.data_dir)
         profiles = [profile for profile in profiles if not profile.startswith(".")]
         self.train_idx = train_idx
@@ -376,7 +381,6 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
             "val": self.valid_idx
         }
         
-        cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
             for _idx in indices:
                 profile = profiles[_idx] # 2700개 중 하나
@@ -397,10 +401,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
                     self.mask_labels.append(mask_label)
                     self.gender_labels.append(gender_label)
                     self.age_labels.append(age_label)
-
-                    self.indices[phase].append(cnt)
-                    cnt += 1
-
+                    self.indices[phase].append(_idx)
        
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
