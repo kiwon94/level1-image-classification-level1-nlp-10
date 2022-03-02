@@ -27,8 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
 from dataset import MaskBaseDataset
 from loss import create_criterion
-from torchsampler import ImbalancedDatasetSampler
-
+from torchvision import datasets
 
 def seed_everything(seed): # seed 고정
     torch.manual_seed(seed)
@@ -105,7 +104,7 @@ def get_dataset():
         data_dir=data_dir, # /opt/ml/input/data/train/images
         flag_strat= bool_strat
     )
-    
+
     return dataset
     
 def get_transform(dataset):
@@ -243,6 +242,7 @@ def train(data_dir, model_dir, args):
     criterion, optimizer = get_loss_optim(model)
     scheduler = get_scheduler(optimizer)
     logger = get_logger(save_dir)
+    val_ratio = args.val_ratio
 
     best_val_acc = 0
     best_val_loss = np.inf # 무한
@@ -251,7 +251,6 @@ def train(data_dir, model_dir, args):
     early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
 
     # train start
-    val_ratio = args.val_ratio
     if args.KfoldCV == 'True':
         stratified_kfold = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
         for i,(train_idx, valid_idx) in enumerate(stratified_kfold.split(dataset.train_df, dataset.train_df['folder_class'])):
@@ -419,21 +418,37 @@ def train(data_dir, model_dir, args):
         dataset.setup(train_idx.index, valid_idx.index)
         train_set, val_set = dataset.split_dataset() # random split 
 
+        # weight sampler
+        y_train_indices = train_set.indices
+        print(len(y_train_indices))
+
+        y_train = [dataset[i][1] for i in y_train_indices]
+
+        class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+        print(class_sample_count)
+        weight = 1. / class_sample_count
+        print(weight)
+        samples_weight = np.array([weight[t] for t in y_train])
+        print(samples_weight)
+        samples_weight = torch.from_numpy(samples_weight)
+        sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
         train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
+            sampler = sampler,
             num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-            shuffle=True, #shuffle
+            shuffle=False, #shuffle
             pin_memory=use_cuda,
             drop_last=True,
         )
-        # train_loader = torch.utils.data.DataLoader(
+
+        # train_loader = DataLoader(
         #     train_set,
-        #     sampler=ImbalancedDatasetSampler(train_set),
         #     batch_size=args.batch_size,
+        #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+        #     shuffle=True, #shuffle
         #     pin_memory=use_cuda,
-        #     drop_last=True
-        #     callback_get_label = True
+        #     drop_last=True,
         # )
 
         val_loader = DataLoader(
