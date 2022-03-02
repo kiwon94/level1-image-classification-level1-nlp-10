@@ -34,7 +34,7 @@ def kfold_load_model(saved_model, num_classes, device):
     model_module = import_module("model")
     model = model_module.get_model(args.model, num_classes)
 
-    modelfile_list = [modelfile for modelfile in os.listdir(saved_model) if modelfile.endswith('.pth')]
+    modelfile_list = [modelfile for modelfile in os.listdir(saved_model) if modelfile.startswith('0')]
     best_val_loss = np.inf
     best_model_path=''
     for models in modelfile_list:
@@ -100,9 +100,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Data and model checkpoints directories
-    parser.add_argument('--batch_size', type=int, default=250, help='input batch size for validing (default: 1000)')
+    parser.add_argument('--batch_size', type=int, default=500, help='input batch size for validing (default: 1000)')
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
-    parser.add_argument('--model', type=str, default='densenet', help='model type (default: BaseModel)')
+    parser.add_argument('--model', type=str, default='resnet101', help='model type (default: BaseModel)')
     parser.add_argument('--KfoldCV', type=str2bool, default=True, help='using KfoldCV, default is True')
 
     # Container environment
