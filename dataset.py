@@ -12,6 +12,11 @@ from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
 
+# albumentations
+import albumentations
+import albumentations.pytorch
+import cv2
+
 IMG_EXTENSIONS = [
     ".jpg", ".JPG", ".jpeg", ".JPEG", ".png",
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
@@ -20,7 +25,6 @@ IMG_EXTENSIONS = [
 
 def is_image_file(filename): #file이 IMG_EXTENSIONS으로 안끝나면 False
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
-
 
 class BaseAugmentation:
     def __init__(self, resize, mean, std, **args):
@@ -33,6 +37,29 @@ class BaseAugmentation:
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
         return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
+
+class AlbuAugmentation:
+    def __init__(self, resize, mean, std, **args):
+        self.transform = albumentations.Compose([
+            albumentations.Resize(resize[0],resize[1]),
+            albumentations.LongestMaxSize(max_size=max(resize)),
+            albumentations.PadIfNeeded(min_height=max(resize),
+                            min_width=max(resize),
+                            border_mode=cv2.BORDER_CONSTANT),
+            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
+            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
+                                albumentations.VerticalFlip(p=1)            
+                                ], p=1),
+            albumentations.OneOf([albumentations.MotionBlur(p=1),
+                                albumentations.OpticalDistortion(p=1),
+                                albumentations.GaussNoise(p=1)                 
+                                ], p=1),
+            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
+            albumentations.pytorch.transforms.ToTensorV2()])
+
+    def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
+        image_transform = self.transform(image=image) # albumentation 결과는 dict형으로 반환됨
+        return image_transform['image'].type(torch.float32) 
 
 
 class AddGaussianNoise(object):
@@ -55,12 +82,15 @@ class AddGaussianNoise(object):
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose([
-            CenterCrop((320, 256)),
+            # CenterCrop((320, 256)),
             Resize(resize, Image.BILINEAR),
-            ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            RandomHorizontalFlip(p=0.5),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
-            AddGaussianNoise()
+            
         ])
 
     def __call__(self, image):
@@ -102,9 +132,9 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 60:
+        # elif value < 55:
         #     return cls.MIDDLE
-        elif value < 55:
+        elif value < 60:
              return cls.MIDDLE
         else:
             return cls.OLD
@@ -272,6 +302,11 @@ class MaskBaseDataset(Dataset):
 
     def read_image(self, index): 
         image_path = self.image_paths[index]
+        if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
+            transformed_image = cv2.imread(image_path)
+            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
+            return transformed_image
+        
         return Image.open(image_path)
 
     @staticmethod
@@ -376,10 +411,16 @@ class TestDataset(Dataset):
     def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
+            # CenterCrop((320, 256)),
             Resize(resize, Image.BILINEAR),
+            # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            RandomHorizontalFlip(p=0.5),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
         ])
+        # self.transform = CustomAugmentation
 
     def __getitem__(self, index):
         image = Image.open(self.img_paths[index]) 

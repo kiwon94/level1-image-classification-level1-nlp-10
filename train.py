@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import random
 import re
+from sched import scheduler
 from pytorchtools import EarlyStopping
 from importlib import import_module
 from pathlib import Path
@@ -26,7 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
 from dataset import MaskBaseDataset
 from loss import create_criterion
-
+from torchvision import datasets
 
 def seed_everything(seed): # seed 고정
     torch.manual_seed(seed)
@@ -42,10 +43,12 @@ def get_lr(optimizer): # learning rate 불러오기
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-def get_model(device, num_classes=18):
+    
+def get_model(device, num_classes=18): #model 불러오기
     
     # -- model
     model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+
     if args.pretrained=='True' and 'densenet' in args.model: 
         model = model_module(
             pretrained = True,
@@ -78,8 +81,63 @@ def get_model(device, num_classes=18):
     model = torch.nn.DataParallel(model) # 병렬처리
     
     return model
+def get_scheduler(optimizer):
+    # -- Scheduler
+    if args.LR_scheduler == 'GradualWarmupScheduler' :
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
+        scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
+
+    elif args.LR_scheduler == 'StepLR' :
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=args.steplr_gamma)
+
+    return scheduler
+
+def get_dataset():
+     # -- dataset
+    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskSplitByProfileDataset
+    if args.dataset == 'MaskSplitByProfileDataset': # 
+        bool_strat = True
+    else :
+        bool_strat = False
+
+    dataset = dataset_module( # MaskSplitByProfileDataset 생성
+        data_dir=data_dir, # /opt/ml/input/data/train/images
+        flag_strat= bool_strat
+    )
+
+    return dataset
+    
+def get_transform(dataset):
+    # -- augmentation
+    transform_module = getattr(import_module("dataset"), args.augmentation)  # default: BaseAugmentation
+    transform = transform_module( # resizing, mean과 std로 정규화하는 transform
+                                resize=args.resize,
+                                mean=dataset.mean,
+                                std=dataset.std,
+                                )
+        
+
+    return transform
+def get_loss_optim(model):
+    # -- loss & metric
+    criterion = create_criterion(args.criterion)  # default: cross_entropy
+    opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
+    optimizer = opt_module(
+        filter(lambda p: p.requires_grad, model.parameters()), #req_grad = True인 파라미터만 opt
+        lr=args.lr,
+        # weight_decay=5e-4
+    )
+    return criterion, optimizer
+def get_logger(save_dir):
+    # -- logging
+    logger = SummaryWriter(log_dir=save_dir)
+    with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:#./model/exp/config.json
+        json.dump(vars(args), f, ensure_ascii=False, indent=4)
+
+    return logger
 
 def grid_image(np_images, gts, preds, n=16, shuffle=False):
+    
     """ np_images를 n개 표현하고 target label과 pred label 비교
 
     Args:
@@ -176,49 +234,17 @@ def train(data_dir, model_dir, args):
 
     print("K fold CV :", args.KfoldCV)
     seed_everything(args.seed)
+
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
+
     model = get_model(device)
-
-    # -- dataset
-    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskSplitByProfileDataset
-    if args.dataset == 'MaskSplitByProfileDataset': # 
-        bool_strat = True
-    else :
-        bool_strat = False
-    dataset = dataset_module( # MaskSplitByProfileDataset 생성
-        data_dir=data_dir, # /opt/ml/input/data/train/images
-        flag_strat= bool_strat
-    )
-    
-    # -- augmentation
-    transform_module = getattr(import_module("dataset"), args.augmentation)  # default: BaseAugmentation
-    transform = transform_module( # resizing, mean과 std로 정규화하는 transform
-        resize=args.resize,
-        mean=dataset.mean,
-        std=dataset.std,
-    )
+    dataset = get_dataset()
+    transform = get_transform(dataset)
     dataset.set_transform(transform) # dataset에 transform 할당
-
-    # -- loss & metric
-    criterion = create_criterion(args.criterion)  # default: cross_entropy
-    opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
-    optimizer = opt_module(
-        filter(lambda p: p.requires_grad, model.parameters()), #req_grad = True인 파라미터만 opt
-        lr=args.lr,
-        weight_decay=5e-4
-    )
-    # -- Scheduler
-    if args.LR_scheduler == 'GradualWarmupScheduler' :
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
-        scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
-
-    elif args.LR_scheduler == 'StepLR' :
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
-
-    # -- logging
-    logger = SummaryWriter(log_dir=save_dir)
-    with open(os.path.join(save_dir, 'config.json'), 'w', encoding='utf-8') as f:#./model/exp/config.json
-        json.dump(vars(args), f, ensure_ascii=False, indent=4)
+    criterion, optimizer = get_loss_optim(model)
+    scheduler = get_scheduler(optimizer)
+    logger = get_logger(save_dir)
+    val_ratio = args.val_ratio
 
     best_val_acc = 0
     best_val_loss = np.inf # 무한
@@ -227,7 +253,6 @@ def train(data_dir, model_dir, args):
     early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
 
     # train start
-    val_ratio = args.val_ratio
     if args.KfoldCV == 'True':
         stratified_kfold = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
         for i,(train_idx, valid_idx) in enumerate(stratified_kfold.split(dataset.train_df, dataset.train_df['folder_class'])):
@@ -245,21 +270,21 @@ def train(data_dir, model_dir, args):
             # _,labels = dataset[6]
             # print(labels)
             train_loader = DataLoader(
-            train_set,
-            batch_size=args.batch_size,
-            num_workers=multiprocessing.cpu_count()//2,
-            shuffle=True,
-            pin_memory=use_cuda,
-            drop_last=True,
+                train_set,
+                batch_size=args.batch_size,
+                num_workers=multiprocessing.cpu_count()//2,
+                shuffle=True,
+                pin_memory=use_cuda,
+                drop_last=True,
             )
 
             val_loader = DataLoader(
-            val_set,
-            batch_size=args.valid_batch_size,
-            num_workers=multiprocessing.cpu_count()//2,
-            shuffle=False,
-            pin_memory=use_cuda,
-            drop_last=True,
+                val_set,
+                batch_size=args.valid_batch_size,
+                num_workers=multiprocessing.cpu_count()//2,
+                shuffle=False,
+                pin_memory=use_cuda,
+                drop_last=True,
             )
 
             for epoch in range(args.epochs): # epoch 
@@ -330,7 +355,6 @@ def train(data_dir, model_dir, args):
                         preds = torch.argmax(outs, dim=-1)
 
                         loss_item = criterion(outs, labels).item() # loss
-
                         acc_item = (labels == preds).sum().item() # accuracy\
 
                         val_loss_items.append(loss_item)
@@ -341,7 +365,7 @@ def train(data_dir, model_dir, args):
                             # [1000, 3, 128, 96]
                             inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
                             # [1000, 128, 96, 3]
-                            inputs_np = dataset_module.denormalize_image(inputs_np, dataset.mean, dataset.std)
+                            inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
                             figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
                                 inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
                             ) 
@@ -381,36 +405,61 @@ def train(data_dir, model_dir, args):
                         config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
                         config = json.load(config_json)
                         config_json.close()
-                        config["early stop"] = epoch
+                        config["early stop epoch"] = epoch
+                        config["transform"] = str(transform.transform)
 
                         config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                        json.dump(config, config_json)
+                        json.dump(config, config_json, ensure_ascii=False, indent=4)
                         config_json.close()
                         break
                     print() # ?
-            model = get_model(device)
+            model = get_model(device) # fold 종료 후 model 재정의
                     
     else: # no k fold
         train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
         dataset.setup(train_idx.index, valid_idx.index)
         train_set, val_set = dataset.split_dataset() # random split 
 
+        # weight sampler
+        y_train_indices = train_set.indices
+        print(len(y_train_indices))
+
+        y_train = [dataset[i][1] for i in y_train_indices]
+
+        class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+        print(class_sample_count)
+        weight = 1. / class_sample_count
+        print(weight)
+        samples_weight = np.array([weight[t] for t in y_train])
+        print(samples_weight)
+        samples_weight = torch.from_numpy(samples_weight)
+        sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
         train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
+            sampler = sampler,
             num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-            shuffle=True, #shuffle
+            shuffle=False, #shuffle
             pin_memory=use_cuda,
             drop_last=True,
         )
 
+        # train_loader = DataLoader(
+        #     train_set,
+        #     batch_size=args.batch_size,
+        #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+        #     shuffle=True, #shuffle
+        #     pin_memory=use_cuda,
+        #     drop_last=True,
+        # )
+
         val_loader = DataLoader(
             val_set,
-            batch_size=args.batch_size,
+            batch_size=args.valid_batch_size,
             num_workers=multiprocessing.cpu_count()//2,
             shuffle=False,
             pin_memory=use_cuda,
-            drop_last=False, # 왜 True로 되어 있지?
+            drop_last=True, # 왜 True로 되어 있지?
         )
         for epoch in range(args.epochs): # epoch 
             # train loop
@@ -490,7 +539,7 @@ def train(data_dir, model_dir, args):
                         # [1000, 3, 128, 96]
                         inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
                         # [1000, 128, 96, 3]
-                        inputs_np = dataset_module.denormalize_image(inputs_np, dataset.mean, dataset.std)
+                        inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
                         figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
                             inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
                         ) 
@@ -530,10 +579,11 @@ def train(data_dir, model_dir, args):
                     config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
                     config = json.load(config_json)
                     config_json.close()
-                    config["early stop"] = epoch
+                    config["early stop epoch"] = epoch
+                    config["transform"] = str(transform.transform)
 
                     config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                    json.dump(config, config_json)
+                    json.dump(config, config_json, ensure_ascii=False, indent=4)
                     config_json.close()
                     break
                 print() # ?
@@ -562,7 +612,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
-    
+    parser.add_argument('--weight_decay', type=float, default= 5e-4, help='optimizer weight decay(default: 5e-4)')
+    parser.add_argument('--steplr_gamma', type=float, default= 0.5, help='StepLR gamma(default: 0.5)')
+
     parser.add_argument('--pretrained', type=str, default='False', help='use pretrained model (default : False)')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop patience (default: 10)')
 
@@ -575,11 +627,13 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=str, default='True', help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=str, default='False', help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=str, default='False', help='using KfoldCV, default is False')
 
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
     # Kfold를 안하고 strat도 하기 싫다면 --KfoldCv = False --dataset = MaskBaseDataset
+
+    #albumentations 사용: pip install albumentations
     
 
     args = parser.parse_args()
