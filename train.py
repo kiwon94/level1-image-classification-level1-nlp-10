@@ -111,11 +111,21 @@ def get_dataset():
 def get_transform(dataset):
     # -- augmentation
     transform_module = getattr(import_module("dataset"), args.augmentation)  # default: BaseAugmentation
-    transform = transform_module( # resizing, mean과 std로 정규화하는 transform
-        resize=args.resize,
-        mean=dataset.mean,
-        std=dataset.std,
-    )
+    
+    shuffle_use = True # shuffle 사용여부 체크
+    if args.augmentation == 'BaseAugmentation':
+        transform = transform_module( # resizing, mean과 std로 정규화하는 transform
+                                    resize=args.resize,
+                                    mean=dataset.mean,
+                                    std=dataset.std,
+                                    )
+    elif args.augmentation == 'AlbuAugmentation': # albumentation Augmentation 적용
+        transform = transform_module(resize=args.resize,
+                                    mean=dataset.mean,
+                                    std=dataset.std,
+                                    )
+        
+
     return transform
 def get_loss_optim(model):
     # -- loss & metric
