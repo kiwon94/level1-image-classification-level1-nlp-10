@@ -526,7 +526,7 @@ def train(data_dir, model_dir, args):
             train_set,
             batch_size=args.batch_size,
             sampler = sampler,
-            collate_fn=collator
+            collate_fn=collator,
             num_workers=multiprocessing.cpu_count()//2,
             shuffle=False,
             pin_memory=use_cuda,
@@ -592,8 +592,7 @@ def train(data_dir, model_dir, args):
                         correct_ = preds.eq(labels).sum().item()
                         matches += correct_
 
-                loss_value += loss.item() # loss 합
-                matches += (preds == labels).sum().item() # 정답을 맞힌 수
+
                 if (idx + 1) % args.log_interval == 0: # log_interval 마다 (default 20 step)
                     train_loss = loss_value / args.log_interval # 20step loss의 평균
                     train_acc = matches / args.batch_size / args.log_interval # 맞힌수 / batch_size / 20
