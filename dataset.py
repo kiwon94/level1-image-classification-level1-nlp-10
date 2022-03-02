@@ -91,7 +91,6 @@ class CustomAugmentation:
     def __call__(self, image):
         return self.transform(image)
 
-
 class MaskLabels(int, Enum):
     MASK = 0
     INCORRECT = 1
@@ -324,7 +323,7 @@ class MaskBaseDataset(Dataset):
     #         return transformed_image
         
     #     return Image.open(image_path)
-    
+
     @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
         return mask_label * 6 + gender_label * 3 + age_label
