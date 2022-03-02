@@ -12,11 +12,6 @@ from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
 
-# albumentations
-import albumentations
-import albumentations.pytorch
-import cv2
-
 IMG_EXTENSIONS = [
     ".jpg", ".JPG", ".jpeg", ".JPEG", ".png",
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
@@ -25,6 +20,7 @@ IMG_EXTENSIONS = [
 
 def is_image_file(filename): #file이 IMG_EXTENSIONS으로 안끝나면 False
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
+
 
 class BaseAugmentation:
     def __init__(self, resize, mean, std, **args):
@@ -37,29 +33,6 @@ class BaseAugmentation:
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
         return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
-
-class AlbuAugmentation:
-    def __init__(self, resize, mean, std, **args):
-        self.transform = albumentations.Compose([
-            albumentations.Resize(resize[0],resize[1]),
-            albumentations.LongestMaxSize(max_size=max(resize)),
-            albumentations.PadIfNeeded(min_height=max(resize),
-                            min_width=max(resize),
-                            border_mode=cv2.BORDER_CONSTANT),
-            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
-            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
-                                albumentations.VerticalFlip(p=1)            
-                                ], p=1),
-            albumentations.OneOf([albumentations.MotionBlur(p=1),
-                                albumentations.OpticalDistortion(p=1),
-                                albumentations.GaussNoise(p=1)                 
-                                ], p=1),
-            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
-            albumentations.pytorch.transforms.ToTensorV2()])
-
-    def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
-        image_transform = self.transform(image=image) # albumentation 결과는 dict형으로 반환됨
-        return image_transform['image'].type(torch.float32) 
 
 
 class AddGaussianNoise(object):
@@ -81,6 +54,7 @@ class AddGaussianNoise(object):
 
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
+
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
             # Resize(resize, Image.BILINEAR),
@@ -90,7 +64,7 @@ class CustomAugmentation:
             ToTensor(),
             Normalize(mean=mean, std=std),
         ])
-
+    
     def __call__(self, image):
         return self.transform(image)
 
@@ -132,7 +106,7 @@ class AgeLabels(int, Enum):
             return cls.YOUNG
         # elif value < 60:
         #     return cls.MIDDLE
-        elif value < 60:
+        elif value < 55:
              return cls.MIDDLE
         else:
             return cls.OLD
@@ -285,7 +259,7 @@ class MaskBaseDataset(Dataset):
         
         image_transform = self.transform(image)
         # image_transform = image_transform.type(torch.uint8) # float을 uint8로 줄여 전송
-        return image_transform, multi_class_label # input = index, output = img & label
+        return {"image2tensor":image_transform, "label":multi_class_label} # input = index, output = img & label
 
     def __len__(self): # 18900
         return len(self.image_paths)
@@ -301,11 +275,6 @@ class MaskBaseDataset(Dataset):
 
     def read_image(self, index): 
         image_path = self.image_paths[index]
-        if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
-            transformed_image = cv2.imread(image_path)
-            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
-            return transformed_image
-        
         return Image.open(image_path)
 
     @staticmethod
@@ -364,19 +333,24 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 
     def __init__(self, data_dir, flag_strat, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
+        self.labels = defaultdict(list)
         super().__init__(data_dir, flag_strat, mean, std, val_ratio)
         
     def setup(self, train_idx, valid_idx):
-        profiles = os.listdir(self.data_dir)
-        profiles = [profile for profile in profiles if not profile.startswith(".")]
-        self.train_idx = train_idx
-        self.valid_idx = valid_idx
+        self.image_paths = []
+        self.mask_labels = []
+        self.gender_labels = []
+        self.age_labels = []
+        self.indices = defaultdict(list)
+        profiles = os.listdir(self.data_dir) # 전체 사람 폴더 경로
+        profiles = [profile for profile in profiles if not profile.startswith(".")] # 전체 이미지 경로
+        self.train_idx = train_idx # kfold 한 사람 폴더 경로
+        self.valid_idx = valid_idx # kfold 한 사람 폴더 경로
         split_profiles = {
             "train": self.train_idx,
             "val": self.valid_idx
         }
         
-        cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
             for _idx in indices:
                 profile = profiles[_idx] # 2700개 중 하나
@@ -397,11 +371,9 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
                     self.mask_labels.append(mask_label)
                     self.gender_labels.append(gender_label)
                     self.age_labels.append(age_label)
-
-                    self.indices[phase].append(cnt)
-                    cnt += 1
-
-       
+                    label = self.encode_multi_class(mask_label, gender_label, age_label)
+                    self.indices[phase].append(_idx)
+                    self.labels[phase].append(label)
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
 
@@ -418,7 +390,6 @@ class TestDataset(Dataset):
             ToTensor(),
             Normalize(mean=mean, std=std),
         ])
-        # self.transform = CustomAugmentation
 
     def __getitem__(self, index):
         image = Image.open(self.img_paths[index]) 
