@@ -10,10 +10,9 @@ from dataset import TestDataset, MaskBaseDataset
 
 
 def load_model(saved_model, num_classes, device):
-    model_cls = getattr(import_module("model"), args.model)
-    model = model_cls(
-        num_classes=num_classes
-    )
+
+    model_module = import_module("model")
+    model = model_module.get_model(args.model, num_classes)
 
     # tarpath = os.path.join(saved_model, 'best.tar.gz')
     # tar = tarfile.open(tarpath, 'r:gz')
@@ -45,7 +44,7 @@ def inference(data_dir, model_dir, output_dir, args):
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
-        num_workers=0,
+        num_workers=8,
         shuffle=False,
         pin_memory=use_cuda,
         drop_last=False,
@@ -70,8 +69,8 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
-    parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
+    parser.add_argument('--resize', type=tuple, default=(128, 96), help='resize size for image when you trained (default: (96, 128))')
+    parser.add_argument('--model', type=str, default='densenet', help='model type (default: BaseModel)')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_EVAL', '/opt/ml/input/data/eval'))
