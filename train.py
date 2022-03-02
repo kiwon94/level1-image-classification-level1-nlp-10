@@ -13,7 +13,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
+import wandb
 import torch.nn as nn
 
 from torch.optim.lr_scheduler import _LRScheduler
@@ -94,14 +94,8 @@ def get_scheduler(optimizer):
 def get_dataset():
      # -- dataset
     dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskSplitByProfileDataset
-    if args.dataset == 'MaskSplitByProfileDataset': # 
-        bool_strat = True
-    else :
-        bool_strat = False
-
     dataset = dataset_module( # MaskSplitByProfileDataset 생성
         data_dir=data_dir, # /opt/ml/input/data/train/images
-        flag_strat= bool_strat
     )
 
     return dataset
@@ -230,8 +224,7 @@ def train(data_dir, model_dir, args):
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     scaler = torch.cuda.amp.GradScaler()
-
-    print("K fold CV :", args.KfoldCV)
+    wandb.init(project="test-project", entity="boostcamp_nlp_10")
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
@@ -243,7 +236,6 @@ def train(data_dir, model_dir, args):
     criterion, optimizer = get_loss_optim(model)
     scheduler = get_scheduler(optimizer)
     logger = get_logger(save_dir)
-    val_ratio = args.val_ratio
 
     best_val_acc = 0
     best_val_loss = np.inf # 무한
@@ -251,342 +243,173 @@ def train(data_dir, model_dir, args):
 
     early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
 
-    # train start
-    if args.KfoldCV == 'True':
-        stratified_kfold = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
-        for i,(train_idx, valid_idx) in enumerate(stratified_kfold.split(dataset.train_df, dataset.train_df['folder_class'])):
+    #train 
+    train_set, val_set = dataset.split_dataset() # random split 
+
+    # weight sampler
+    y_train_indices = train_set.indices
+
+    y_train = [dataset[i][1] for i in y_train_indices]
+
+    class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+    weight = 1. / class_sample_count
+    samples_weight = np.array([weight[t] for t in y_train])
+    samples_weight = torch.from_numpy(samples_weight)
+    sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
+    
+    train_loader = DataLoader(
+        train_set,
+        batch_size=args.batch_size,
+        sampler = sampler,
+        num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+        shuffle=False, #shuffle
+        pin_memory=use_cuda,
+        drop_last=True,
+    )
+
+    # train_loader = DataLoader( # random sampling
+    #     train_set,
+    #     batch_size=args.batch_size,
+    #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+    #     shuffle=True, #shuffle
+    #     pin_memory=use_cuda,
+    #     drop_last=True,
+    # )
+
+    val_loader = DataLoader(
+        val_set,
+        batch_size=args.valid_batch_size,
+        num_workers=multiprocessing.cpu_count()//2,
+        shuffle=False,
+        pin_memory=use_cuda,
+        drop_last=True, # 왜 True로 되어 있지?
+    )
+    for epoch in range(args.epochs): # epoch 
+        # train loop
+        model.train()
+        loss_value = 0
+        matches = 0
+        for idx, train_batch in enumerate(train_loader):
+            inputs, labels = train_batch # img, label
+            inputs = inputs.to(device)
             
-            # print(i)
-            # print(f"train_len: {len(train_idx)}")
-            # print(f"valid_len: {len(valid_idx)}")
-            # print(f"train label Zero :{np.sum(dataset.train_df['folder_class'][train_idx]==0)/len(train_idx)}, train label One : {np.sum(dataset.train_df['folder_class'][train_idx]==1)/len(train_idx)}, train label Two : {np.sum(dataset.train_df['folder_class'][train_idx]==2)/len(train_idx)}, train label Three : {np.sum(dataset.train_df['folder_class'][train_idx]==3)/len(train_idx)}, train label Four : {np.sum(dataset.train_df['folder_class'][train_idx]==4)/len(train_idx)}, train label Five : {np.sum(dataset.train_df['folder_class'][train_idx]==5)/len(train_idx)}")
-            # print(f"val label Zero : {np.sum(dataset.train_df['folder_class'][valid_idx]==0)/len(valid_idx)}, val label One : {np.sum(dataset.train_df['folder_class'][valid_idx]==1)/len(valid_idx)}, train label Two : {np.sum(dataset.train_df['folder_class'][valid_idx]==2)/len(valid_idx)}, train label Three : {np.sum(dataset.train_df['folder_class'][valid_idx]==3)/len(valid_idx)}, train label Four : {np.sum(dataset.train_df['folder_class'][valid_idx]==4)/len(valid_idx)}, train label Five : {np.sum(dataset.train_df['folder_class'][valid_idx]==5)/len(valid_idx)}")
-            
-            print("{:=^100}".format(f" k-fold: {i+1}/{int(1/val_ratio)} "))
-            dataset.setup(train_idx, valid_idx)
-            train_set, val_set = dataset.split_dataset()
+            labels = labels.to(device)
 
-            # _,labels = dataset[6]
-            # print(labels)
-            train_loader = DataLoader(
-                train_set,
-                batch_size=args.batch_size,
-                num_workers=multiprocessing.cpu_count()//2,
-                shuffle=True,
-                pin_memory=use_cuda,
-                drop_last=True,
-            )
+            optimizer.zero_grad()
 
-            val_loader = DataLoader(
-                val_set,
-                batch_size=args.valid_batch_size,
-                num_workers=multiprocessing.cpu_count()//2,
-                shuffle=False,
-                pin_memory=use_cuda,
-                drop_last=True,
-            )
-
-            for epoch in range(args.epochs): # epoch 
-                # train loop
-                model.train()
-                loss_value = 0
-                matches = 0
-                for idx, train_batch in enumerate(train_loader):
-                    inputs, labels = train_batch # img, label
-                    # inputs = inputs.type(torch.FloatTensor).to(device)
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-
-                    optimizer.zero_grad()
-
-                    # using precision
-                    if args.precision=='True':
-                        with torch.cuda.amp.autocast():
-                            outs = model(inputs)
-                            preds = torch.argmax(outs, dim=-1)
-                            loss = criterion(outs, labels)
-                    
-                        scaler.scale(loss).backward()
-                        scaler.step(optimizer)
-                        scaler.update()
-
-                    else:
-                        outs = model(inputs)
-                        preds = torch.argmax(outs, dim=-1)
-                        loss = criterion(outs, labels)
-
-                        loss.backward()
-                        optimizer.step()
-
-                    loss_value += loss.item() # loss 합
-                    matches += (preds == labels).sum().item() # 정답을 맞힌 수
-                    if (idx + 1) % args.log_interval == 0: # log_interval 마다 (default 20 step)
-                        train_loss = loss_value / args.log_interval # 20step loss의 평균
-                        train_acc = matches / args.batch_size / args.log_interval # 맞힌수 / batch_size / 20
-                        current_lr = get_lr(optimizer)
-                        print(
-                            f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
-                            f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
-                        )
-                        logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
-                        logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx) # tensorboard
-
-                        loss_value = 0
-                        matches = 0
-
-                scheduler.step() # 매 epoch
-
-                # val loop
-                with torch.no_grad(): # 1 epoch train 끝나고
-                    print("Calculating validation results...")
-                    model.eval()
-                    val_loss_items = []
-                    val_acc_items = []
-                    val_target = []
-                    val_labels = []
-                    figure = None
-                    for val_batch in val_loader:
-                        inputs, labels = val_batch
-                        # inputs = inputs.type(torch.FloatTensor).to(device)
-                        inputs = inputs.to(device)
-                        labels = labels.to(device)
-                        outs = model(inputs)
-                        preds = torch.argmax(outs, dim=-1)
-
-                        loss_item = criterion(outs, labels).item() # loss
-                        acc_item = (labels == preds).sum().item() # accuracy\
-
-                        val_loss_items.append(loss_item)
-                        val_acc_items.append(acc_item)
-                        val_target.extend(labels.tolist())
-                        val_labels.extend(preds.tolist())
-                        if figure is None:
-                            # [1000, 3, 128, 96]
-                            inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
-                            # [1000, 128, 96, 3]
-                            inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
-                            figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
-                                inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
-                            ) 
-
-                    val_loss = np.sum(val_loss_items) / len(val_loader) # 18900 * 0.2 // 1000
-                    val_acc = np.sum(val_acc_items) / len(val_set) # 3780
-                    val_f1 = f1_score(val_target, val_labels, average='macro')
-                    best_val_loss = min(best_val_loss, val_loss)
-                    if val_acc > best_val_acc:
-                        print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                        torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                        best_val_acc = val_acc
-                    
-                    if val_f1 > best_val_f1:
-                        print(f"New best model for val f1 : {val_f1:4.2%}! saving the best model..")
-                        torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                        best_val_f1 = val_f1
-
-                    torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
-                    print(
-                        f"[Val] acc : {val_acc:4.2%} || "
-                        f"best acc : {best_val_acc:4.2%} || "
-                        f"[Val] f1 : {val_f1:4.2%} || "
-                        f"best f1 : {best_val_f1:4.2%} || "
-                        f"loss: {val_loss:4.2}, best loss: {best_val_loss:4.2}"
-                    )
-                    logger.add_scalar("Val/loss", val_loss, epoch)
-                    logger.add_scalar("Val/accuracy", val_acc, epoch)
-                    logger.add_scalar("Val/f1", val_f1, epoch)
-                    logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
-
-                    early_stopping(val_loss, model)
-
-                    if early_stopping.early_stop:
-                        print("Early stopping epoch : ", epoch)
-
-                        config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
-                        config = json.load(config_json)
-                        config_json.close()
-                        config["early stop epoch"] = epoch
-                        config["transform"] = str(transform.transform)
-
-                        config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                        json.dump(config, config_json, ensure_ascii=False, indent=4)
-                        config_json.close()
-                        break
-                    print() # ?
-            model = get_model(device) # fold 종료 후 model 재정의
-                    
-    else: # no k fold
-        train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
-        dataset.setup(train_idx.index, valid_idx.index)
-        train_set, val_set = dataset.split_dataset() # random split 
-
-        # weight sampler
-        y_train_indices = train_set.indices
-        print(len(y_train_indices))
-
-        y_train = [dataset[i][1] for i in y_train_indices]
-
-        class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-        print(class_sample_count)
-        weight = 1. / class_sample_count
-        print(weight)
-        samples_weight = np.array([weight[t] for t in y_train])
-        print(samples_weight)
-        samples_weight = torch.from_numpy(samples_weight)
-        sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
-        
-        train_loader = DataLoader(
-            train_set,
-            batch_size=args.batch_size,
-            sampler = sampler,
-            num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-            shuffle=False, #shuffle
-            pin_memory=use_cuda,
-            drop_last=True,
-        )
-
-        # train_loader = DataLoader(
-        #     train_set,
-        #     batch_size=args.batch_size,
-        #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-        #     shuffle=True, #shuffle
-        #     pin_memory=use_cuda,
-        #     drop_last=True,
-        # )
-
-        val_loader = DataLoader(
-            val_set,
-            batch_size=args.valid_batch_size,
-            num_workers=multiprocessing.cpu_count()//2,
-            shuffle=False,
-            pin_memory=use_cuda,
-            drop_last=True, # 왜 True로 되어 있지?
-        )
-        for epoch in range(args.epochs): # epoch 
-            # train loop
-            model.train()
-            loss_value = 0
-            matches = 0
-            for idx, train_batch in enumerate(train_loader):
-                inputs, labels = train_batch # img, label
-                inputs = inputs.to(device)
-                
-                labels = labels.to(device)
-
-                optimizer.zero_grad()
-
-                # using precision
-                if args.precision=='True':
-                    with torch.cuda.amp.autocast():
-                        outs = model(inputs)
-                        preds = torch.argmax(outs, dim=-1)
-                        loss = criterion(outs, labels)
-                
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-
-                else:
+            # using precision
+            if args.precision=='True':
+                with torch.cuda.amp.autocast():
                     outs = model(inputs)
                     preds = torch.argmax(outs, dim=-1)
                     loss = criterion(outs, labels)
+            
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
-                    loss.backward()
-                    optimizer.step()
+            else:
+                outs = model(inputs)
+                preds = torch.argmax(outs, dim=-1)
+                loss = criterion(outs, labels)
 
-                loss_value += loss.item() # loss 합
-                matches += (preds == labels).sum().item() # 정답을 맞힌 수
-                if (idx + 1) % args.log_interval == 0: # log_interval 마다 (default 20 step)
-                    train_loss = loss_value / args.log_interval # 20step loss의 평균
-                    train_acc = matches / args.batch_size / args.log_interval # 맞힌수 / batch_size / 20
-                    current_lr = get_lr(optimizer)
-                    print(
-                        f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
-                        f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
-                    )
-                    logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
-                    logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx) # tensorboard
+                loss.backward()
+                optimizer.step()
 
-                    loss_value = 0
-                    matches = 0
-
-            scheduler.step() # 매 epoch
-
-            # val loop
-            with torch.no_grad(): # 1 epoch train 끝나고
-                print("Calculating validation results...")
-                model.eval()
-                val_loss_items = []
-                val_acc_items = []
-                val_target = []
-                val_labels = []
-                figure = None
-                for val_batch in val_loader:
-                    inputs, labels = val_batch
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-                    outs = model(inputs)
-                    preds = torch.argmax(outs, dim=-1)
-
-                    loss_item = criterion(outs, labels).item() # loss
-
-                    acc_item = (labels == preds).sum().item() # accuracy
-
-                    val_loss_items.append(loss_item)
-                    val_acc_items.append(acc_item)
-                    val_target.extend(labels.tolist())
-                    val_labels.extend(preds.tolist())
-                    if figure is None:
-                        # [1000, 3, 128, 96]
-                        inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
-                        # [1000, 128, 96, 3]
-                        inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
-                        figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
-                            inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
-                        ) 
-
-                val_loss = np.sum(val_loss_items) / len(val_loader) # 18900 * 0.2 // 1000
-                val_acc = np.sum(val_acc_items) / len(val_set) # 3780
-                val_f1 = f1_score(val_target, val_labels, average='macro')
-                best_val_loss = min(best_val_loss, val_loss)
-                if val_acc > best_val_acc:
-                    print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                    torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                    best_val_acc = val_acc
-                
-                if val_f1 > best_val_f1:
-                    print(f"New best model for val f1 : {val_f1:4.2%}! saving the best model..")
-                    torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                    best_val_f1 = val_f1
-
-                torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
+            loss_value += loss.item() # loss 합
+            matches += (preds == labels).sum().item() # 정답을 맞힌 수
+            if (idx + 1) % args.log_interval == 0: # log_interval 마다 (default 20 step)
+                train_loss = loss_value / args.log_interval # 20step loss의 평균
+                train_acc = matches / args.batch_size / args.log_interval # 맞힌수 / batch_size / 20
+                current_lr = get_lr(optimizer)
                 print(
-                    f"[Val] acc : {val_acc:4.2%} || "
-                    f"best acc : {best_val_acc:4.2%} || "
-                    f"[Val] f1 : {val_f1:4.2%} || "
-                    f"best f1 : {best_val_f1:4.2%} || "
-                    f"loss: {val_loss:4.2}, best loss: {best_val_loss:4.2}"
+                    f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
+                    f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
                 )
-                logger.add_scalar("Val/loss", val_loss, epoch)
-                logger.add_scalar("Val/accuracy", val_acc, epoch)
-                logger.add_scalar("Val/f1", val_f1, epoch)
-                logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
+                logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx) # tensorboard
+                wandb.log({"Train/loss": train_loss, "Train/accuracy": train_acc})
+                loss_value = 0
+                matches = 0
 
-                early_stopping(val_loss, model)
+        scheduler.step() # 매 epoch
 
-                if early_stopping.early_stop:
-                    print("Early stopping epoch : ", epoch)
+        # val loop
+        with torch.no_grad(): # 1 epoch train 끝나고
+            print("Calculating validation results...")
+            model.eval()
+            val_loss_items = []
+            val_acc_items = []
+            val_target = []
+            val_labels = []
+            figure = None
+            for val_batch in val_loader:
+                inputs, labels = val_batch
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outs = model(inputs)
+                preds = torch.argmax(outs, dim=-1)
 
-                    config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
-                    config = json.load(config_json)
-                    config_json.close()
-                    config["early stop epoch"] = epoch
-                    config["transform"] = str(transform.transform)
+                loss_item = criterion(outs, labels).item() # loss
 
-                    config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                    json.dump(config, config_json, ensure_ascii=False, indent=4)
-                    config_json.close()
-                    break
-                print() # ?
+                acc_item = (labels == preds).sum().item() # accuracy
+
+                val_loss_items.append(loss_item)
+                val_acc_items.append(acc_item)
+                val_target.extend(labels.tolist())
+                val_labels.extend(preds.tolist())
+                if figure is None:
+                    # [1000, 3, 128, 96]
+                    inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
+                    # [1000, 128, 96, 3]
+                    inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
+                    figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
+                        inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
+                    ) 
+
+            val_loss = np.sum(val_loss_items) / len(val_loader) # 18900 * 0.2 // 1000
+            val_acc = np.sum(val_acc_items) / len(val_set) # 3780
+            val_f1 = f1_score(val_target, val_labels, average='macro')
+            best_val_loss = min(best_val_loss, val_loss)
+            if val_acc > best_val_acc:
+                print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
+                torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
+                best_val_acc = val_acc
+            
+            if val_f1 > best_val_f1:
+                print(f"New best model for val f1 : {val_f1:4.2%}! saving the best model..")
+                torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
+                best_val_f1 = val_f1
+
+            torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
+            print(
+                f"[Val] acc : {val_acc:4.2%} || "
+                f"best acc : {best_val_acc:4.2%} || "
+                f"[Val] f1 : {val_f1:4.2%} || "
+                f"best f1 : {best_val_f1:4.2%} || "
+                f"loss: {val_loss:4.2}, best loss: {best_val_loss:4.2}"
+            )
+            logger.add_scalar("Val/loss", val_loss, epoch)
+            logger.add_scalar("Val/accuracy", val_acc, epoch)
+            logger.add_scalar("Val/f1", val_f1, epoch)
+            logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
+            wandb.log({"Train/loss": train_loss, "Train/accuracy": train_acc})
+            early_stopping(val_loss, model)
+
+            if early_stopping.early_stop:
+                print("Early stopping epoch : ", epoch)
+
+                config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
+                config = json.load(config_json)
+                config_json.close()
+                config["early stop epoch"] = epoch
+                config["transform"] = str(transform.transform)
+
+                config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
+                json.dump(config, config_json, ensure_ascii=False, indent=4)
+                config_json.close()
+                break
+            print() # ?
 
 
 if __name__ == '__main__':
@@ -600,44 +423,40 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
     parser.add_argument('--epochs', type=int, default=20, help='number of epochs to train (default: 1)')
     parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskSplitByProfileDataset)')
-    parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
+    parser.add_argument('--augmentation', type=str, default='CustomAugmentation', help='data augmentation type (default: BaseAugmentation)')
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
-    parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
-    parser.add_argument('--valid_batch_size', type=int, default=64, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
-    parser.add_argument('--optimizer', type=str, default='SGD', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--batch_size', type=int, default=32, help='input batch size for training (default: 32)')
+    parser.add_argument('--valid_batch_size', type=int, default=32, help='input batch size for validing (default: 32)')
+    parser.add_argument('--model', type=str, default='densenet', help='model type (default: BaseModel)')
+    parser.add_argument('--optimizer', type=str, default='AdamW', help='optimizer type (default: SGD)')
+    parser.add_argument('--lr', type=float, default=0.00009, help='learning rate (default: 0.00009)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
-    parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
+    parser.add_argument('--criterion', type=str, default='focal', help='criterion type (default: cross_entropy)')
+    parser.add_argument('--lr_decay_step', type=int, default=1, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
     parser.add_argument('--weight_decay', type=float, default= 5e-4, help='optimizer weight decay(default: 5e-4)')
-    parser.add_argument('--steplr_gamma', type=float, default= 0.5, help='StepLR gamma(default: 0.5)')
+    parser.add_argument('--steplr_gamma', type=float, default= 0.1, help='StepLR gamma(default: 0.5)')
 
     parser.add_argument('--pretrained', type=str, default='True', help='use pretrained model (default : False)')
-    parser.add_argument('--early_stop', type=int, default=10, help='early stop patience (default: 10)')
+    parser.add_argument('--early_stop', type=int, default=1, help='early stop patience (default: 10)')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
 
     # Bag of tricks args
-    parser.add_argument('--LR_scheduler', type=str, default='GradualWarmupScheduler', help='using cosine LR scheduler')
+    parser.add_argument('--LR_scheduler', type=str, default='StepLR', help='using cosine LR scheduler')
     parser.add_argument('--precision', type=str, default='True', help='using cosine FP16 precision')
-
-    # Kfold CV
-    parser.add_argument('--KfoldCV', type=str, default='False', help='using KfoldCV, default is False')
-
-    # Stratify & Kfold CV 관련 옵션 tip
-    # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
-    # Kfold를 안하고 strat도 하기 싫다면 --KfoldCv = False --dataset = MaskBaseDataset
 
     #albumentations 사용: pip install albumentations
     
 
     args = parser.parse_args()
-    print(args)
+    wandb.config = vars(args)
+
+    # print(args)
+    print(wandb.config)
 
     data_dir = args.data_dir
     model_dir = args.model_dir

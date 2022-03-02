@@ -11,11 +11,7 @@ from PIL import Image
 from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
-
-# albumentations
-import albumentations
-import albumentations.pytorch
-import cv2
+import re
 
 IMG_EXTENSIONS = [
     ".jpg", ".JPG", ".jpeg", ".JPEG", ".png",
@@ -37,29 +33,6 @@ class BaseAugmentation:
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
         return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
-
-class AlbuAugmentation:
-    def __init__(self, resize, mean, std, **args):
-        self.transform = albumentations.Compose([
-            albumentations.Resize(resize[0],resize[1]),
-            albumentations.LongestMaxSize(max_size=max(resize)),
-            albumentations.PadIfNeeded(min_height=max(resize),
-                            min_width=max(resize),
-                            border_mode=cv2.BORDER_CONSTANT),
-            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
-            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
-                                albumentations.VerticalFlip(p=1)            
-                                ], p=1),
-            albumentations.OneOf([albumentations.MotionBlur(p=1),
-                                albumentations.OpticalDistortion(p=1),
-                                albumentations.GaussNoise(p=1)                 
-                                ], p=1),
-            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
-            albumentations.pytorch.transforms.ToTensorV2()])
-
-    def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
-        image_transform = self.transform(image=image) # albumentation 결과는 dict형으로 반환됨
-        return image_transform['image'].type(torch.float32) 
 
 
 class AddGaussianNoise(object):
@@ -86,9 +59,11 @@ class CustomAugmentation:
             # Resize(resize, Image.BILINEAR),
             # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             RandomHorizontalFlip(p=0.5),
-            # Grayscale(num_output_channels=3),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
+            
         ])
 
     def __call__(self, image):
@@ -130,7 +105,7 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 60:
+        # elif value < 55:
         #     return cls.MIDDLE
         elif value < 60:
              return cls.MIDDLE
@@ -144,7 +119,7 @@ class ModifyTrainData:
     mail_to_femail = ['001498-1','004432', '005223']
     femail_to_mail = ['006359','006360','006361','006362','006363','006364']
     # 기존 label 유지 ['000010','000667','000664','000725','000736','000767','000817','003780','004281','006504', '006424', '003223', '003113', '001509']
-    # norm_to_incorrect = ['005227', '000020', '004418']
+    norm_to_incorrect = ['005227', '000020', '004418']
     age_to_young = ['001009', '001064', '001637', '001666', '001852', ]
     age_to_old = ['004348']
     @classmethod
@@ -169,17 +144,17 @@ class ModifyTrainData:
         
         # train_df.reset_index(drop = True, inplace=True) # 삭제된 data index를 비워놓기 때문에 index reset (0-2697)
 
-        # for i in cls.norm_to_incorrect: # 파일명 확인
-        #     fpath = str(train_df[train_df['id'] == i]['path'].values[0])
+        for i in cls.norm_to_incorrect: # 파일명 확인
+            fpath = str(train_df[train_df['id'] == i]['path'].values[0])
 
-        #     path = os.path.join("/opt/ml/input/data/train/images/", fpath)
-        #     incorrect_fname = os.path.join(path, "incorrect_mask.jpg")
-        #     normal_fname = os.path.join(path, "normal.jpg")
-        #     temp_fname = os.path.join(path, "temp.jpg")
+            path = os.path.join("/opt/ml/input/data/train/images/", fpath)
+            incorrect_fname = os.path.join(path, "incorrect_mask.jpg")
+            normal_fname = os.path.join(path, "normal.jpg")
+            temp_fname = os.path.join(path, "temp.jpg")
 
-        #     os.rename(incorrect_fname, temp_fname)
-        #     os.rename(normal_fname, incorrect_fname)
-        #     os.rename(temp_fname, normal_fname)
+            os.rename(incorrect_fname, temp_fname)
+            os.rename(normal_fname, incorrect_fname)
+            os.rename(temp_fname, normal_fname)
         return train_df
        
 
@@ -187,11 +162,7 @@ class MaskBaseDataset(Dataset):
     num_classes = 3 * 2 * 3
 
     _file_names = {
-        "mask1": MaskLabels.MASK,
-        "mask2": MaskLabels.MASK,
-        "mask3": MaskLabels.MASK,
-        "mask4": MaskLabels.MASK,
-        "mask5": MaskLabels.MASK,
+        "mask": MaskLabels.MASK,
         "incorrect_mask": MaskLabels.INCORRECT,
         "normal": MaskLabels.NORMAL
     }
@@ -200,8 +171,8 @@ class MaskBaseDataset(Dataset):
     mask_labels = []
     gender_labels = []
     age_labels = []
-    # default mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)
-    def __init__(self, data_dir, flag_strat, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+
+    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -209,20 +180,7 @@ class MaskBaseDataset(Dataset):
         self.train_df = pd.read_csv(train_csv_path)
         self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
         self.transform = None
-        self.flag_strat= flag_strat
-        if self.flag_strat == False: 
-            self.setup()
-        else :
-            num_person = len(self.train_df) # 2700
-            self.train_df['folder_class']=int(0)
-            for i in range(num_person):
-                gender = self.train_df.loc[i, 'gender']
-                age = self.train_df.loc[i, 'age']
-
-                gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-                age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
-                kfold_class = self.encode_kfold_class(gender_label,age_label) # kfold_class 0: male/young ~ 5: female/old
-                self.train_df.loc[i, 'folder_class']=kfold_class
+        self.setup()
         self.calc_statistics()
 
     def setup(self): # img_path, mask_label, gender_label, age_label
@@ -248,8 +206,7 @@ class MaskBaseDataset(Dataset):
             picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
             for j in picture_list:
                 img_path = os.path.join(label_path, j) # full path
-                # gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-                # age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
+
                 mask_label = self._file_names[j.split('.')[0]]
                 self.image_paths.append(img_path)
                 self.mask_labels.append(mask_label)
@@ -269,7 +226,6 @@ class MaskBaseDataset(Dataset):
 
             self.mean = np.mean(sums, axis=0) / 255 # 왜 255로 나누지?
             self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
-
 
     def set_transform(self, transform):
         self.transform = transform
@@ -301,11 +257,6 @@ class MaskBaseDataset(Dataset):
 
     def read_image(self, index): 
         image_path = self.image_paths[index]
-        if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
-            transformed_image = cv2.imread(image_path)
-            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
-            return transformed_image
-        
         return Image.open(image_path)
 
     @staticmethod
@@ -362,42 +313,57 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         이후 `split_dataset` 에서 index 에 맞게 Subset 으로 dataset 을 분기합니다.
     """
 
-    def __init__(self, data_dir, flag_strat, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
+    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
-        super().__init__(data_dir, flag_strat, mean, std, val_ratio)
+        super().__init__(data_dir, mean, std, val_ratio)
+
+    @staticmethod
+    def _split_profile(num_person, val_ratio):
+        length = num_person # 사람 수 2700
+        n_val = int(length * val_ratio) # 540
+
+        val_indices = set(random.sample(range(length), k=n_val)) # 0-2699 중 540개 선택
+        train_indices = set(range(length)) - val_indices # 0-4499 중 val_indices 차집합
+
+        return {
+            "train": train_indices,
+            "val": val_indices
+        }    
+
+    def setup(self): # img_path, mask_label, gender_label, age_label
+        """
+        image_paths = full path (/opt/ml/input/data/train/images/000001_female_Asian_45/incorrect_mask.jpg)
+        mask_labels = last path (incorrect_mask)
+        gender_labels = df['gender']
+        age_labels = df['age']
+        """
         
-    def setup(self, train_idx, valid_idx):
-        profiles = os.listdir(self.data_dir)
-        profiles = [profile for profile in profiles if not profile.startswith(".")]
-        self.train_idx = train_idx
-        self.valid_idx = valid_idx
-        split_profiles = {
-            "train": self.train_idx,
-            "val": self.valid_idx
-        }
+        num_person = len(self.train_df) # 2700
+        split_profiles = self._split_profile(num_person, self.val_ratio) #split_profiles["train"] = range(2200)
         
         cnt = 0
         for phase, indices in split_profiles.items(): # train, index_set
-            for _idx in indices:
-                profile = profiles[_idx] # 2700개 중 하나
-                img_folder = os.path.join(self.data_dir, profile) # /opt/ml/input/data/train/images/000001_female_Asian_45
-                for file_name in os.listdir(img_folder): 
-                    _file_name, ext = os.path.splitext(file_name) # mask1.jpg
-                    if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
-                        continue
+            for i in indices:
+                label_path = self.train_df.loc[i, 'path']
+                gender = self.train_df.loc[i, 'gender']
+                age = self.train_df.loc[i, 'age']
+                label_path = os.path.join(self.data_dir, label_path) # /opt/ml/input/data/train/images/000001_female_Asian_45
 
-                    img_path = os.path.join(self.data_dir, profile, file_name)  # (/opt/ml/input/data/train/images, 000004_male_Asian_54, mask1.jpg)
-                    mask_label = self._file_names[_file_name] # MaskLabels.MASK
+                picture_list = os.listdir(label_path) # incorrect_mask.jpg, ...
+                picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
+                for j in picture_list:
+                    img_path = os.path.join(label_path, j) # full path
+                    gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
+                    age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
 
-                    id, gender, race, age = profile.split("_") # csv 기반으로 변환
-                    gender_label = GenderLabels.from_str(gender)
-                    age_label = AgeLabels.from_number(age)
+                    mask_label = re.sub(r"\d", "", j.split('.')[0])
+                    mask_label = self._file_names[mask_label]
 
                     self.image_paths.append(img_path)
                     self.mask_labels.append(mask_label)
                     self.gender_labels.append(gender_label)
                     self.age_labels.append(age_label)
-
+                    
                     self.indices[phase].append(cnt)
                     cnt += 1
 
@@ -407,15 +373,16 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 
 
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809)):
+    def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
             # Resize(resize, Image.BILINEAR),
             # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             RandomHorizontalFlip(p=0.5),
-            # Grayscale(num_output_channels=3),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
         ])
         # self.transform = CustomAugmentation
