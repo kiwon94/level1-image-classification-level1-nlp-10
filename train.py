@@ -298,17 +298,17 @@ def train(data_dir, model_dir, args):
             # weight sampler
         
             # y_train_indices = train_set.indices
-            print(len(train_set))
+            # print(len(train_set))
             y_train = []
             for data in train_set:
                 y_train.append(data['label'])
 
             class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-            print(class_sample_count)
+            # print(class_sample_count)
             weight = 1. / class_sample_count
-            print(weight)
+            # print(weight)
             samples_weight = np.array([weight[t] for t in y_train])
-            print(samples_weight)
+            # print(samples_weight)
             samples_weight = torch.from_numpy(samples_weight)
             weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
 
@@ -333,6 +333,10 @@ def train(data_dir, model_dir, args):
                 pin_memory=use_cuda,
                 drop_last=True,
             )
+
+            best_val_acc = 0
+            best_val_loss = np.inf # 무한
+            best_val_f1 = 0
 
             for epoch in range(args.epochs): # epoch 
                 # train loop
@@ -506,15 +510,15 @@ def train(data_dir, model_dir, args):
         # weight sampler
         
         # y_train_indices = train_set.indices
-        print(len(train_set))
+        # print(len(train_set))
         y_train = []
         for data in train_set:
             y_train.append(data['label'])
 
         class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-        print(class_sample_count)
+        # print(class_sample_count)
         weight = 1. / class_sample_count
-        print(weight)
+        # print(weight)
         samples_weight = np.array([weight[t] for t in y_train])
         samples_weight = torch.from_numpy(samples_weight)
         weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
