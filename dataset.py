@@ -297,7 +297,7 @@ class MaskBaseDataset(Dataset):
         
         image_transform = self.transform(image)
         # image_transform = image_transform.type(torch.uint8) # float을 uint8로 줄여 전송
-        return {"image2tensor":image_transform, "label":multi_class_label} # input = index, output = img & label
+        return image_transform, multi_class_label # input = index, output = img & label
 
     def __len__(self): # 18900
         return len(self.image_paths)
