@@ -30,7 +30,8 @@ from torchsampler import ImbalancedDatasetSampler
 def get_label(dataset):
     label_list =[]
     for data in dataset:
-        label_list.append(data["label"])
+        _,label = data
+        label_list.append(label)
     return label_list
 
 def str2bool(s):
@@ -42,8 +43,9 @@ def str2bool(s):
         raise RuntimeError('Boolean value expected')
 
 def cutmix(batch, alpha):
-    data = torch.stack([datas['image2tensor'] for datas in batch])
-    targets = torch.as_tensor([datas['label'] for datas in batch])
+    # data = torch.stack([datas['image2tensor'] for datas in batch])
+    # targets = torch.as_tensor([datas['label'] for datas in batch])
+    data, targets = batch
     # print(data.shape)
     # print(targets)
     indices = torch.randperm(data.size(0))
@@ -72,6 +74,7 @@ class CutMixCollator:
         self.alpha = alpha
 
     def __call__(self, batch):
+        batch = torch.utils.data.dataloader.default_collate(batch)
         batch = cutmix(batch,self.alpha)
         return batch
 
@@ -301,7 +304,7 @@ def train(data_dir, model_dir, args):
             # print(len(train_set))
             y_train = []
             for data in train_set:
-                y_train.append(data['label'])
+                y_train.append(data[1])
 
             class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
             # print(class_sample_count)
@@ -361,7 +364,10 @@ def train(data_dir, model_dir, args):
                         with torch.cuda.amp.autocast():
                             outs = model(inputs)
                             preds = torch.argmax(outs, dim=-1)
-                            loss = train_criterion(outs, labels)
+                            if args.use_cutmix == True:
+                                loss = train_criterion(outs, labels)
+                            else:
+                                loss = criterion(outs, labels)
                     
                         scaler.scale(loss).backward()
                         scaler.step(optimizer)
@@ -370,7 +376,10 @@ def train(data_dir, model_dir, args):
                     else:
                         outs = model(inputs)
                         preds = torch.argmax(outs, dim=-1)
-                        loss = train_criterion(outs, labels)
+                        if args.use_cutmix == True:
+                            loss = train_criterion(outs, labels)
+                        else:
+                            loss = criterion(outs, labels)
 
                         loss.backward()
                         optimizer.step()
@@ -413,8 +422,8 @@ def train(data_dir, model_dir, args):
                     val_labels = []
                     figure = None
                     for val_batch in val_loader:
-                        inputs= val_batch['image2tensor']
-                        labels = val_batch['label']
+                        inputs= val_batch[0]
+                        labels = val_batch[1]
                         # inputs = inputs.type(torch.FloatTensor).to(device)
                         inputs = inputs.to(device)
                         labels = labels.to(device)
@@ -513,7 +522,7 @@ def train(data_dir, model_dir, args):
         # print(len(train_set))
         y_train = []
         for data in train_set:
-            y_train.append(data['label'])
+            y_train.append(data[1])
 
         class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
         # print(class_sample_count)
@@ -567,7 +576,10 @@ def train(data_dir, model_dir, args):
                     with torch.cuda.amp.autocast():
                         outs = model(inputs)
                         preds = torch.argmax(outs, dim=-1)
-                        loss = train_criterion(outs, labels)
+                        if args.use_cutmix == True:
+                            loss = train_criterion(outs, labels)
+                        else:
+                            loss = criterion(outs, labels)
                 
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
@@ -576,7 +588,10 @@ def train(data_dir, model_dir, args):
                 else:
                     outs = model(inputs)
                     preds = torch.argmax(outs, dim=-1)
-                    loss = train_criterion(outs, labels)
+                    if args.use_cutmix == True:
+                        loss = train_criterion(outs, labels)
+                    else:
+                        loss = criterion(outs, labels)
 
                     loss.backward()
                     optimizer.step()
@@ -620,8 +635,8 @@ def train(data_dir, model_dir, args):
                 val_labels = []
                 figure = None
                 for val_batch in val_loader:
-                    inputs= val_batch['image2tensor']
-                    labels = val_batch['label']
+                    inputs= val_batch[0]
+                    labels = val_batch[1]
                     inputs = inputs.to(device)
                     labels = labels.to(device)
                     outs = model(inputs)
