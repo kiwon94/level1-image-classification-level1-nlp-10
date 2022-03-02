@@ -448,7 +448,7 @@ def train(data_dir, model_dir, args):
                         best_val_acc = val_acc
 
                     if best_val_f1 < val_f1:
-                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                        print(f"New best model for val f1 : {val_f1:4.2%}!")
                         best_val_f1 = val_f1
                     
                     torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
@@ -484,7 +484,7 @@ def train(data_dir, model_dir, args):
             model = get_model(device) # fold 종료 후 model 재정의
             criterion, optimizer = get_loss_optim(model)
             scheduler = get_scheduler(optimizer)        
-            
+
     else: # no k fold
         train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
         dataset.setup(train_idx.index, valid_idx.index)
@@ -651,11 +651,11 @@ def train(data_dir, model_dir, args):
                     best_val_loss = val_loss
                     
                 if best_val_acc < val_acc:
-                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
-                        best_val_acc = val_acc
+                    print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                    best_val_acc = val_acc
 
                 if best_val_f1 < val_f1:
-                    print(f"New best model for val accuracy : {val_acc:4.2%}!")
+                    print(f"New best model for val f1 : {val_f1:4.2%}!")
                     best_val_f1 = val_f1
                 
                 torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
