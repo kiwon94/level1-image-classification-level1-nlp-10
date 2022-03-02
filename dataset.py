@@ -12,6 +12,11 @@ from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
 
+# albumentations
+import albumentations
+import albumentations.pytorch
+import cv2
+
 IMG_EXTENSIONS = [
     ".jpg", ".JPG", ".jpeg", ".JPEG", ".png",
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
@@ -34,6 +39,24 @@ class BaseAugmentation:
         return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
 
+class AlbuAugmentation:
+    def __init__(self, resize, mean, std, **args):
+        self.transform = albumentations.Compose([
+            albumentations.Resize(resize[0],resize[1]),
+            albumentations.LongestMaxSize(max_size=max(resize)),
+            albumentations.PadIfNeeded(min_height=max(resize),
+                            min_width=max(resize),
+                            border_mode=cv2.BORDER_CONSTANT),
+            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
+            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
+                                albumentations.VerticalFlip(p=1)            
+                                ], p=1),
+            albumentations.OneOf([albumentations.MotionBlur(p=1),
+                                albumentations.OpticalDistortion(p=1),
+                                albumentations.GaussNoise(p=1)                 
+                                ], p=1),
+            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
+            albumentations.pytorch.transforms.ToTensorV2()])
 
 class AddGaussianNoise(object):
     """
@@ -104,9 +127,7 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 60:
-        #     return cls.MIDDLE
-        elif value < 55:
+        elif value < 60:
              return cls.MIDDLE
         else:
             return cls.OLD
@@ -199,36 +220,54 @@ class MaskBaseDataset(Dataset):
                 self.train_df.loc[i, 'folder_class']=kfold_class
         self.calc_statistics()
 
-    def setup(self): # img_path, mask_label, gender_label, age_label
+    def setup(self, train_idx, valid_idx): # img_path, mask_label, gender_label, age_label
         """
         image_paths = full path (/opt/ml/input/data/train/images/000001_female_Asian_45/incorrect_mask.jpg)
         mask_labels = last path (incorrect_mask)
         gender_labels = df['gender']
         age_labels = df['age']
         """
+
+        self.image_paths = []
+        self.mask_labels = []
+        self.gender_labels = []
+        self.age_labels = []
+
+        self.indices = defaultdict(list)
+        profiles = os.listdir(self.data_dir) # 전체 사람 폴더 경로
+        profiles = [profile for profile in profiles if not profile.startswith(".")] # 전체 이미지 경로
+        self.train_idx = train_idx # kfold 한 사람 폴더 경로
+        self.valid_idx = valid_idx # kfold 한 사람 폴더 경로
+        split_profiles = {
+            "train": self.train_idx,
+            "val": self.valid_idx
+        }
         
-        num_person = len(self.train_df)
-        for i in range(num_person):
+        for phase, indices in split_profiles.items(): # train, index_set
+            for _idx in indices:
+                profile = profiles[_idx] # 2700개 중 하나
+                img_folder = os.path.join(self.data_dir, profile) # /opt/ml/input/data/train/images/000001_female_Asian_45
+                for file_name in os.listdir(img_folder): 
+                    _file_name, ext = os.path.splitext(file_name) # mask1.jpg
+                    if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
+                        continue
 
-            gender = self.train_df.loc[i, 'gender']
-            age = self.train_df.loc[i, 'age']
+                    img_path = os.path.join(self.data_dir, profile, file_name)  # (/opt/ml/input/data/train/images, 000004_male_Asian_54, mask1.jpg)
+                    mask_label = self._file_names[_file_name] # MaskLabels.MASK
 
-            gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-            age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
-            label_path = self.train_df.loc[i, 'path']
-            label_path = os.path.join(self.data_dir, label_path) # /opt/ml/input/data/train/images/000001_female_Asian_45
+                    _, gender, _, age = profile.split("_") # csv 기반으로 변환
+                    gender_label = GenderLabels.from_str(gender)
+                    age_label = AgeLabels.from_number(age)
 
-            picture_list = os.listdir(label_path) # incorrect_mask.jpg, ...
-            picture_list = [fname for fname in picture_list if fname[0] != "."] # 임시파일 제외
-            for j in picture_list:
-                img_path = os.path.join(label_path, j) # full path
-                # gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
-                # age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
-                mask_label = self._file_names[j.split('.')[0]]
-                self.image_paths.append(img_path)
-                self.mask_labels.append(mask_label)
-                self.gender_labels.append(gender_label)
-                self.age_labels.append(age_label)
+                    self.image_paths.append(img_path)
+                    self.mask_labels.append(mask_label)
+                    self.gender_labels.append(gender_label)
+                    self.age_labels.append(age_label)
+                    label = self.encode_multi_class(mask_label, gender_label, age_label)
+
+                    self.indices[phase].append(_idx)
+                    self.labels[phase].append(label)
+
 
     def calc_statistics(self):
         has_statistics = self.mean is not None and self.std is not None # 평균, 표준편차가 none이 아니면 True
@@ -277,6 +316,15 @@ class MaskBaseDataset(Dataset):
         image_path = self.image_paths[index]
         return Image.open(image_path)
 
+    # def read_image(self, index): albumentation사용 시 read_image
+    #     image_path = self.image_paths[index]
+    #     if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
+    #         transformed_image = cv2.imread(image_path)
+    #         transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
+    #         return transformed_image
+        
+    #     return Image.open(image_path)
+    
     @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
         return mask_label * 6 + gender_label * 3 + age_label

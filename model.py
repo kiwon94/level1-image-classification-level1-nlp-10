@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import numpy as np
-# import timm
+import timm
 
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
@@ -146,19 +146,19 @@ def inception_resnet_v2(classes):
     return irnet
 
 def efficientnet_b0(classes):
-    effnet = EfficientNet.from_pretrained('efficientnet-b0', num_classes=classes)
+    effnet = timm.EfficientNet.from_pretrained('efficientnet-b0', num_classes=classes)
     return effnet
 
 def efficientnet_b3(classes):
-    effnet = EfficientNet.from_pretrained('efficientnet-b3', num_classes=classes)
+    effnet = timm.EfficientNet.from_pretrained('efficientnet-b3', num_classes=classes)
     return effnet
 
 def efficientnet_b4(classes):
-    effnet = EfficientNet.from_pretrained('efficientnet-b4', num_classes=classes)
+    effnet = timm.EfficientNet.from_pretrained('efficientnet-b4', num_classes=classes)
     return effnet
 
 def efficientnet_b7(classes):
-    effnet = EfficientNet.from_pretrained('efficientnet-b7', num_classes=classes)
+    effnet = timm.EfficientNet.from_pretrained('efficientnet-b7', num_classes=classes)
     return effnet
 
 def get_model(model_name:str, classes:int):

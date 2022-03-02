@@ -98,7 +98,7 @@ _criterion_entrypoints = {
     'focal': FocalLoss,
     'label_smoothing': LabelSmoothingLoss,
     'f1': F1Loss,
-    'Cutmix_CE' : CutMix_CE,
+    'Cutmix_cross_entropy' : CutMix_CE,
     'Cutmix_focal' : CutMix_Focal,
     'Cutmix_f1' : CutMix_F1
 }
