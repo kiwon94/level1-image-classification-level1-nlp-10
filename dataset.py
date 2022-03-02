@@ -21,7 +21,6 @@ IMG_EXTENSIONS = [
 def is_image_file(filename): #file이 IMG_EXTENSIONS으로 안끝나면 False
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
-
 class BaseAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose([ # resize, tensor 변환, mean, std로 정규화
@@ -55,12 +54,15 @@ class AddGaussianNoise(object):
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose([
-            CenterCrop((320, 256)),
+            # CenterCrop((320, 256)),
             Resize(resize, Image.BILINEAR),
-            ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            RandomHorizontalFlip(p=0.5),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
-            AddGaussianNoise()
+            
         ])
 
     def __call__(self, image):
@@ -102,9 +104,9 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 60:
+        # elif value < 55:
         #     return cls.MIDDLE
-        elif value < 55:
+        elif value < 60:
              return cls.MIDDLE
         else:
             return cls.OLD
@@ -376,10 +378,16 @@ class TestDataset(Dataset):
     def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
+            # CenterCrop((320, 256)),
             Resize(resize, Image.BILINEAR),
+            # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
+            RandomHorizontalFlip(p=0.5),
             ToTensor(),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
         ])
+        # self.transform = CustomAugmentation
 
     def __getitem__(self, index):
         image = Image.open(self.img_paths[index]) 

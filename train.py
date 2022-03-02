@@ -26,6 +26,7 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
 from dataset import MaskBaseDataset
 from loss import create_criterion
+from torchsampler import ImbalancedDatasetSampler
 
 
 def seed_everything(seed): # seed 고정
@@ -42,10 +43,11 @@ def get_lr(optimizer): # learning rate 불러오기
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-def get_model(device, num_classes=18):
+def get_model(device, num_classes=18): #model 불러오기
     
     # -- model
     model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+
     if args.pretrained=='True' and 'densenet' in args.model: 
         model = model_module(
             pretrained = True,
@@ -176,6 +178,7 @@ def train(data_dir, model_dir, args):
 
     print("K fold CV :", args.KfoldCV)
     seed_everything(args.seed)
+
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
     model = get_model(device)
 
@@ -185,6 +188,7 @@ def train(data_dir, model_dir, args):
         bool_strat = True
     else :
         bool_strat = False
+
     dataset = dataset_module( # MaskSplitByProfileDataset 생성
         data_dir=data_dir, # /opt/ml/input/data/train/images
         flag_strat= bool_strat
@@ -205,7 +209,7 @@ def train(data_dir, model_dir, args):
     optimizer = opt_module(
         filter(lambda p: p.requires_grad, model.parameters()), #req_grad = True인 파라미터만 opt
         lr=args.lr,
-        weight_decay=5e-4
+        # weight_decay=5e-4
     )
     # -- Scheduler
     if args.LR_scheduler == 'GradualWarmupScheduler' :
@@ -213,7 +217,7 @@ def train(data_dir, model_dir, args):
         scheduler = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=5, after_scheduler=cosine_scheduler)
 
     elif args.LR_scheduler == 'StepLR' :
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_decay_step, gamma=args.steplr_gamma)
 
     # -- logging
     logger = SummaryWriter(log_dir=save_dir)
@@ -381,10 +385,11 @@ def train(data_dir, model_dir, args):
                         config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
                         config = json.load(config_json)
                         config_json.close()
-                        config["early stop"] = epoch
+                        config["early stop epoch"] = epoch
+                        config["transform"] = str(transform.transform)
 
                         config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                        json.dump(config, config_json)
+                        json.dump(config, config_json, ensure_ascii=False, indent=4)
                         config_json.close()
                         break
                     print() # ?
@@ -403,14 +408,22 @@ def train(data_dir, model_dir, args):
             pin_memory=use_cuda,
             drop_last=True,
         )
+        # train_loader = torch.utils.data.DataLoader(
+        #     train_set,
+        #     sampler=ImbalancedDatasetSampler(train_set),
+        #     batch_size=args.batch_size,
+        #     pin_memory=use_cuda,
+        #     drop_last=True
+        #     callback_get_label = True
+        # )
 
         val_loader = DataLoader(
             val_set,
-            batch_size=args.batch_size,
+            batch_size=args.valid_batch_size,
             num_workers=multiprocessing.cpu_count()//2,
             shuffle=False,
             pin_memory=use_cuda,
-            drop_last=False, # 왜 True로 되어 있지?
+            drop_last=True, # 왜 True로 되어 있지?
         )
         for epoch in range(args.epochs): # epoch 
             # train loop
@@ -530,10 +543,11 @@ def train(data_dir, model_dir, args):
                     config_json = open(os.path.join(save_dir, 'config.json'), "r",encoding = 'utf')
                     config = json.load(config_json)
                     config_json.close()
-                    config["early stop"] = epoch
+                    config["early stop epoch"] = epoch
+                    config["transform"] = str(transform.transform)
 
                     config_json = open(os.path.join(save_dir, 'config.json'), "w",encoding = 'utf')
-                    json.dump(config, config_json)
+                    json.dump(config, config_json, ensure_ascii=False, indent=4)
                     config_json.close()
                     break
                 print() # ?
@@ -562,7 +576,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
-    
+    parser.add_argument('--weight_decay', type=float, default= 5e-4, help='optimizer weight decay(default: 5e-4)')
+    parser.add_argument('--steplr_gamma', type=float, default= 0.5, help='StepLR gamma(default: 0.5)')
+
     parser.add_argument('--pretrained', type=str, default='False', help='use pretrained model (default : False)')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop patience (default: 10)')
 
@@ -575,7 +591,7 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=str, default='True', help='using cosine FP16 precision')
 
     # Kfold CV
-    parser.add_argument('--KfoldCV', type=str, default='False', help='using KfoldCV, default is True')
+    parser.add_argument('--KfoldCV', type=str, default='False', help='using KfoldCV, default is False')
 
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False
