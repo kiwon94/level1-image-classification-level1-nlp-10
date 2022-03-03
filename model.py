@@ -9,7 +9,7 @@ resnet50 = models.resnet50
 resnet152 = models.resnet152
 wide_resnet101 = models.wide_resnet101_2
 vgg16 = models.vgg16
-
+faceresnet = models.resnet34
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
         super().__init__()

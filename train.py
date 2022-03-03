@@ -72,6 +72,13 @@ def get_model(device, num_classes=18): #model 불러오기
 
         model.classifier[6] = nn.Linear(4096, num_classes)
 
+    elif args.pretrained=='True' and 'faceresnet' in args.model:
+        model = model_module(
+            pretrained = True,
+        ).to(device)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+        model.load_state_dict(torch.load('./res34_fair_align_multi_7_20190809.pt'))
+
     else:
         model = model_module(
             num_classes=num_classes
@@ -80,6 +87,7 @@ def get_model(device, num_classes=18): #model 불러오기
     model = torch.nn.DataParallel(model) # 병렬처리
     
     return model
+    
 def get_scheduler(optimizer):
     # -- Scheduler
     if args.LR_scheduler == 'GradualWarmupScheduler' :
