@@ -456,11 +456,10 @@ if __name__ == '__main__':
     
 
     args = parser.parse_args()
-    wandb.config = vars(args)
-
+    
     # print(args)
     print(wandb.config)
-
+    wandb.config = vars(args)
     data_dir = args.data_dir
     model_dir = args.model_dir
 

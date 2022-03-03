@@ -354,8 +354,8 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
                     img_path = os.path.join(label_path, j) # full path
                     gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
                     age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
-
-                    mask_label = re.sub(r"\d", "", j.split('.')[0])
+                    mask_label = re.sub(r"(add_)+", "", j.split('.')[0]) # 노년층 데이터 정제      
+                    mask_label = re.sub(r"\d", "", mask_label) # incorrect, normal 데이터 정제
                     mask_label = self._file_names[mask_label]
 
                     self.image_paths.append(img_path)
