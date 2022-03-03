@@ -170,8 +170,8 @@ class MaskBaseDataset(Dataset):
     mask_labels = []
     gender_labels = []
     age_labels = []
-    # mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)
-    def __init__(self, data_dir, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    # mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809)
+    def __init__(self, data_dir,  mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -214,17 +214,20 @@ class MaskBaseDataset(Dataset):
 
     def calc_statistics(self):
         has_statistics = self.mean is not None and self.std is not None # 평균, 표준편차가 none이 아니면 True
-        if not has_statistics:
-            print("[Warning] Calculating statistics... It can take a long time depending on your CPU machine")
-            sums = []
-            squared = []
-            for image_path in self.image_paths[:3000]: # 18900
-                image = np.array(Image.open(image_path)).astype(np.int32)
-                sums.append(image.mean(axis=(0, 1)))
-                squared.append((image ** 2).mean(axis=(0, 1)))
+        # if not has_statistics:
+        print("[Warning] Calculating statistics... It can take a long time depending on your CPU machine")
+        sums = []
+        squared = []
+        for image_path in self.image_paths[:3000]: # 18900
+            image = np.array(Image.open(image_path)).astype(np.int32)
+            sums.append(image.mean(axis=(0, 1)))
+            squared.append((image ** 2).mean(axis=(0, 1)))
 
-            self.mean = np.mean(sums, axis=0) / 255 # 왜 255로 나누지?
-            self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
+        self.mean = np.mean(sums, axis=0) / 255 # 왜 255로 나누지?
+        self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
+        print(self.mean)
+        print(self.std)
+
     def set_transform(self, transform):
         self.transform = transform
 
@@ -371,9 +374,9 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
 
-
+ 
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809)):
+    def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
