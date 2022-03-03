@@ -180,7 +180,7 @@ class MaskBaseDataset(Dataset):
         self.train_df = ModifyTrainData.modify_train_data(self.train_df) # 이상값 수정
         self.transform = None
         self.setup()
-        self.calc_statistics()
+        # self.calc_statistics()
 
     def setup(self): # img_path, mask_label, gender_label, age_label
         """
@@ -315,7 +315,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         이후 `split_dataset` 에서 index 에 맞게 Subset 으로 dataset 을 분기합니다.
     """
 
-    def __init__(self, data_dir, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809), val_ratio=0.2):
+    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
         super().__init__(data_dir, mean, std, val_ratio)
 
@@ -376,7 +376,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 
  
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
+    def __init__(self, img_paths, resize, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
@@ -387,6 +387,7 @@ class TestDataset(Dataset):
             # RandomGrayscale,
             # Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
+            
         ])
         # self.transform = CustomAugmentation
 

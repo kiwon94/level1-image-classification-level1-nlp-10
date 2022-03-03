@@ -46,7 +46,7 @@ def get_lr(optimizer): # learning rate 불러오기
 def get_model(device, num_classes=18): #model 불러오기
     
     # -- model
-    model_module = getattr(import_module("model"), args.model)  # default: BaseModel
+      # default: BaseModel
 
     if args.pretrained=='True' and 'densenet' in args.model: 
         model = model_module(
@@ -87,6 +87,15 @@ def get_model(device, num_classes=18): #model 불러오기
         # for para in model.parameters(): 
         #     para.requires_grad = False #모든 layer freezing
         # model.fc.weight.requires_grad = True # 마지막 layer만 해제
+    elif args.model == 'best':
+        model_module = getattr(import_module("model"), 'densenet')
+        model = model_module(
+            pretrained = True,
+        ).to(device)
+
+        num_ftrs = model.classifier.in_features
+        model.classifier = nn.Linear(num_ftrs, num_classes)
+        model.load_state_dict(torch.load('/opt/ml/level1-image-classification-level1-nlp-10/model/exp241/best.pth'))
     
     else:
         model = model_module(
@@ -265,37 +274,37 @@ def train(data_dir, model_dir, args):
     train_set, val_set = dataset.split_dataset() # random split 
 
     # weight sampler
-    y_train_indices = train_set.indices
-    print(len(y_train_indices))
-    print(len(val_set.indices))
+    # y_train_indices = train_set.indices 
+    # print(len(y_train_indices))
+    # print(len(val_set.indices))
 
-    y_train = [dataset[i][1] for i in y_train_indices]
+    # y_train = [dataset[i][1] for i in y_train_indices]
 
-    class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-    print(class_sample_count)
-    weight = 1. / class_sample_count
-    samples_weight = np.array([weight[t] for t in y_train])
-    samples_weight = torch.from_numpy(samples_weight)
-    sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
+    # class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+    # print(class_sample_count)
+    # weight = 1. / class_sample_count
+    # samples_weight = np.array([weight[t] for t in y_train])
+    # samples_weight = torch.from_numpy(samples_weight)
+    # sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
     
-    train_loader = DataLoader(
-        train_set,
-        batch_size=args.batch_size,
-        sampler = sampler,
-        num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-        shuffle=False, #shuffle
-        pin_memory=use_cuda,
-        drop_last=True,
-    )
-
-    # train_loader = DataLoader( # random sampling
+    # train_loader = DataLoader(
     #     train_set,
     #     batch_size=args.batch_size,
+    #     sampler = sampler,
     #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-    #     shuffle=True, #shuffle
+    #     shuffle=False, #shuffle
     #     pin_memory=use_cuda,
     #     drop_last=True,
     # )
+
+    train_loader = DataLoader( # random sampling
+        train_set,
+        batch_size=args.batch_size,
+        num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+        shuffle=True, #shuffle
+        pin_memory=use_cuda,
+        drop_last=True,
+    )
 
     val_loader = DataLoader(
         val_set,
@@ -385,7 +394,7 @@ def train(data_dir, model_dir, args):
                     # [1000, 128, 96, 3]
                     inputs_np = dataset.denormalize_image(inputs_np, dataset.mean, dataset.std)
                     figure = grid_image( # inputs_np n개를 display하고 label 비교, profiledataset이면 non-shuffle
-                        inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
+                        inputs_np, labels, preds, n=16, shuffle = True # args.dataset != "MaskSplitByProfileDataset"
                     ) 
 
             val_loss = np.sum(val_loss_items) / len(val_loader) # 18900 * 0.2 // 1000
@@ -401,7 +410,7 @@ def train(data_dir, model_dir, args):
                 torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
                 best_val_f1 = val_f1
 
-            torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
+            torch.save(model.module.state_dict(), f"{save_dir}/{epoch}.pth")
             print(
                 f"[Val] acc : {val_acc:4.2%} || "
                 f"best acc : {best_val_acc:4.2%} || "
@@ -447,10 +456,10 @@ if __name__ == '__main__':
     parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=32, help='input batch size for training (default: 32)')
     parser.add_argument('--valid_batch_size', type=int, default=32, help='input batch size for validing (default: 32)')
-    parser.add_argument('--model', type=str, default='densenet', help='model type (default: BaseModel)')
+    parser.add_argument('--model', type=str, default='best', help='model type (default: BaseModel)')
     parser.add_argument('--optimizer', type=str, default='AdamW', help='optimizer type (default: SGD)')
     parser.add_argument('--lr', type=float, default=0.00009, help='learning rate (default: 0.00009)')
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
+    parser.add_argument('--val_ratio', type=float, default=0.01, help='ratio for validaton (default: 0.2)')
     parser.add_argument('--criterion', type=str, default='focal', help='criterion type (default: cross_entropy)')
     parser.add_argument('--lr_decay_step', type=int, default=1, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
