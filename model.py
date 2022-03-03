@@ -60,6 +60,12 @@ def resnet34(classes):
     resnet34.fc.bias.data.uniform_(-stdv, stdv)
     return resnet34
 
+def faceresnet34(classes):
+    faceresnet34 = torchvision.models.resnet34(pretrained=True)
+    faceresnet34.fc = nn.Linear(faceresnet34.fc.in_features, classes)
+    faceresnet34.load_state_dict(torch.load('./res34_fair_align_multi_7_20190809.pt'))
+    return faceresnet34
+
 def resnet101(classes):
     resnet101 = torchvision.models.resnet101(pretrained=True)
     resnet101.fc = nn.Linear(in_features=2048, out_features=classes, bias=True)
@@ -172,6 +178,7 @@ def get_model(model_name:str, classes:int):
     model_dict = {
         'resnet18':resnet18,
         'resnet34':resnet34,
+        'faceresnet34':faceresnet34, # FairFace pretrained model
         'resnet101':resnet101,
         'resnet152':resnet152,
         'densenet':densenet,
