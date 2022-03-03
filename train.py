@@ -248,37 +248,37 @@ def train(data_dir, model_dir, args):
     train_set, val_set = dataset.split_dataset() # random split 
 
     # weight sampler
-    # y_train_indices = train_set.indices
-    # print(len(y_train_indices))
-    # print(len(val_set.indices))
+    y_train_indices = train_set.indices
+    print(len(y_train_indices))
+    print(len(val_set.indices))
 
-    # y_train = [dataset[i][1] for i in y_train_indices]
+    y_train = [dataset[i][1] for i in y_train_indices]
 
-    # class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-    # print(class_sample_count)
-    # weight = 1. / class_sample_count
-    # samples_weight = np.array([weight[t] for t in y_train])
-    # samples_weight = torch.from_numpy(samples_weight)
-    # sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
+    class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+    print(class_sample_count)
+    weight = 1. / class_sample_count
+    samples_weight = np.array([weight[t] for t in y_train])
+    samples_weight = torch.from_numpy(samples_weight)
+    sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
     
-    # train_loader = DataLoader(
-    #     train_set,
-    #     batch_size=args.batch_size,
-    #     sampler = sampler,
-    #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-    #     shuffle=False, #shuffle
-    #     pin_memory=use_cuda,
-    #     drop_last=True,
-    # )
-
-    train_loader = DataLoader( # random sampling
+    train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,
+        sampler = sampler,
         num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
-        shuffle=True, #shuffle
+        shuffle=False, #shuffle
         pin_memory=use_cuda,
         drop_last=True,
     )
+
+    # train_loader = DataLoader( # random sampling
+    #     train_set,
+    #     batch_size=args.batch_size,
+    #     num_workers=multiprocessing.cpu_count()//2, # cpu 절반 사용
+    #     shuffle=True, #shuffle
+    #     pin_memory=use_cuda,
+    #     drop_last=True,
+    # )
 
     val_loader = DataLoader(
         val_set,
