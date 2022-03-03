@@ -1,0 +1,31 @@
+{
+    "seed": 42,
+    "epochs": 20,
+    "dataset": "MaskSplitByProfileDataset",
+    "augmentation": "CustomAugmentation",
+    "resize": [
+        128,
+        96
+    ],
+    "batch_size": 32,
+    "valid_batch_size": 32,
+    "model": "densenet",
+    "optimizer": "AdamW",
+    "lr": 9e-05,
+    "val_ratio": 0.2,
+    "criterion": "focal",
+    "lr_decay_step": 1,
+    "log_interval": 20,
+    "name": "exp",
+    "weight_decay": 0.0005,
+    "steplr_gamma": 0.1,
+    "pretrained": "True",
+    "early_stop": 1,
+    "data_dir": "/opt/ml/input/data/train/images",
+    "model_dir": "./model",
+    "LR_scheduler": "StepLR",
+    "precision": "True",
+    "KfoldCV": "False",
+    "early stop epoch": 4,
+    "transform": "Compose(\n    RandomHorizontalFlip(p=0.5)\n    ToTensor()\n    Normalize(mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246))\n)"
+}
