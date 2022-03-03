@@ -251,7 +251,7 @@ def train(data_dir, model_dir, args):
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     scaler = torch.cuda.amp.GradScaler()
-    wandb.init(project="test-project", entity="boostcamp_nlp_10")
+    wandb.init(project="test-project", entity="boostcamp_nlp_10", config = vars(args))
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
@@ -482,10 +482,8 @@ if __name__ == '__main__':
     
 
     args = parser.parse_args()
-    
-    # print(args)
-    print(wandb.config)
-    wandb.config = vars(args)
+    print(args)
+
     data_dir = args.data_dir
     model_dir = args.model_dir
 
