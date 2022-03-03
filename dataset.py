@@ -105,8 +105,6 @@ class AgeLabels(int, Enum):
 
         if value < 30:
             return cls.YOUNG
-        # elif value < 55:
-        #     return cls.MIDDLE
         elif value < 60:
              return cls.MIDDLE
         else:
@@ -144,17 +142,18 @@ class ModifyTrainData:
         
         # train_df.reset_index(drop = True, inplace=True) # 삭제된 data index를 비워놓기 때문에 index reset (0-2697)
 
-        for i in cls.norm_to_incorrect: # 파일명 확인
-            fpath = str(train_df[train_df['id'] == i]['path'].values[0])
+        # for i in cls.norm_to_incorrect: # 파일명 확인
+        #     fpath = str(train_df[train_df['id'] == i]['path'].values[0])
 
-            path = os.path.join("/opt/ml/input/data/train/images/", fpath)
-            incorrect_fname = os.path.join(path, "incorrect_mask.jpg")
-            normal_fname = os.path.join(path, "normal.jpg")
-            temp_fname = os.path.join(path, "temp.jpg")
+        #     path = os.path.join("/opt/ml/input/data/train/images/", fpath)
+        #     incorrect_fname = os.path.join(path, "incorrect_mask.jpg")
+        #     normal_fname = os.path.join(path, "normal.jpg")
+        #     temp_fname = os.path.join(path, "temp.jpg")
 
-            os.rename(incorrect_fname, temp_fname)
-            os.rename(normal_fname, incorrect_fname)
-            os.rename(temp_fname, normal_fname)
+        #     os.rename(incorrect_fname, temp_fname)
+        #     os.rename(normal_fname, incorrect_fname)
+        #     os.rename(temp_fname, normal_fname)
+        
         return train_df
        
 
@@ -171,8 +170,8 @@ class MaskBaseDataset(Dataset):
     mask_labels = []
     gender_labels = []
     age_labels = []
-
-    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    # mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)
+    def __init__(self, data_dir, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -226,7 +225,6 @@ class MaskBaseDataset(Dataset):
 
             self.mean = np.mean(sums, axis=0) / 255 # 왜 255로 나누지?
             self.std = (np.mean(squared, axis=0) - self.mean ** 2) ** 0.5 / 255
-
     def set_transform(self, transform):
         self.transform = transform
 
@@ -297,7 +295,9 @@ class MaskBaseDataset(Dataset):
         구현이 어렵지 않으니 구글링 혹은 IDE (e.g. pycharm) 의 navigation 기능을 통해 코드를 한 번 읽어보는 것을 추천드립니다^^
         """
         n_val = int(len(self) * self.val_ratio) # 18900 * 0.2 = 3780
+        # print("split_dataset n val : ", n_val)
         n_train = len(self) - n_val # 15120
+        # print("split_dataset n train : ", n_train)
         train_set, val_set = random_split(self, [n_train, n_val])
         return train_set, val_set #dataset 반환
 
@@ -313,7 +313,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         이후 `split_dataset` 에서 index 에 맞게 Subset 으로 dataset 을 분기합니다.
     """
 
-    def __init__(self, data_dir, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2):
+    def __init__(self, data_dir, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809), val_ratio=0.2):
         self.indices = defaultdict(list) # print(indices['any_key']) -> [], == {"train" = [], "val" = []}
         super().__init__(data_dir, mean, std, val_ratio)
 
@@ -323,8 +323,9 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         n_val = int(length * val_ratio) # 540
 
         val_indices = set(random.sample(range(length), k=n_val)) # 0-2699 중 540개 선택
+        # print(len(val_indices))
         train_indices = set(range(length)) - val_indices # 0-4499 중 val_indices 차집합
-
+        # print(len(train_indices))
         return {
             "train": train_indices,
             "val": val_indices
@@ -356,7 +357,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
                     gender_label = GenderLabels.from_str(gender) # GenderLabels.MALE (0 or 1)
                     age_label = AgeLabels.from_number(age) # AgeLabels.YOUNG (0 or 1 or 2)
 
-                    mask_label = re.sub(r"\d", "", j.split('.')[0])
+                    mask_label = re.sub(r"\d+", "", j.split('.')[0])
                     mask_label = self._file_names[mask_label]
 
                     self.image_paths.append(img_path)
@@ -369,11 +370,12 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 
        
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
+        # print(len(self))
         return [Subset(self, indices) for phase, indices in self.indices.items()]
 
 
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
+    def __init__(self, img_paths, resize, mean=(0.53944445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.058084809)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),

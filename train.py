@@ -248,10 +248,13 @@ def train(data_dir, model_dir, args):
 
     # weight sampler
     y_train_indices = train_set.indices
+    print(len(y_train_indices))
+    print(len(val_set.indices))
 
     y_train = [dataset[i][1] for i in y_train_indices]
 
     class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
+    print(class_sample_count)
     weight = 1. / class_sample_count
     samples_weight = np.array([weight[t] for t in y_train])
     samples_weight = torch.from_numpy(samples_weight)
@@ -373,7 +376,6 @@ def train(data_dir, model_dir, args):
             best_val_loss = min(best_val_loss, val_loss)
             if val_acc > best_val_acc:
                 print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
                 best_val_acc = val_acc
             
             if val_f1 > best_val_f1:
@@ -393,7 +395,7 @@ def train(data_dir, model_dir, args):
             logger.add_scalar("Val/accuracy", val_acc, epoch)
             logger.add_scalar("Val/f1", val_f1, epoch)
             logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
-            wandb.log({"Train/loss": train_loss, "Train/accuracy": train_acc})
+            wandb.log({"Val/loss": val_loss, "Val/accuracy":val_acc, "Val/f1": val_f1, "results": figure})
             early_stopping(val_loss, model)
 
             if early_stopping.early_stop:
