@@ -13,7 +13,7 @@ from torchvision import transforms
 from torchvision.transforms import *
 
 # albumentations
-import albumentations
+import albumentations as A
 import albumentations.pytorch
 import cv2
 
@@ -22,27 +22,52 @@ IMG_EXTENSIONS = [
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
 ]
 
-
 def is_image_file(filename): #file이 IMG_EXTENSIONS으로 안끝나면 False
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
 class BaseAugmentation:
     def __init__(self, resize, mean, std, **args):
-        self.transform = transforms.Compose([ # resize, tensor 변환, mean, std로 정규화
-            Resize(resize, Image.BILINEAR),
-            ToTensor(),
-            Normalize(mean=mean, std=std),
-        ])
-
+        self.transform = A.Compose(
+        [
+            A.Resize(224,224),
+            # A.CenterCrop(300, 256, p=1),
+            A.HorizontalFlip(p=0.5),
+            A.OneOf([A.GaussNoise()], p=0.4),
+            A.OneOf(
+                [
+                    A.MotionBlur(p=0.2),
+                    A.MedianBlur(blur_limit=3, p=0.2),
+                    A.Blur(blur_limit=3, p=0.2),
+                ],
+                p=1,
+            ),
+            A.OneOf(
+                [
+                # A.CLAHE(clip_limit=2, p=0.5),
+                # A.Sharpen(p=0.5),
+                # A.Emboss(p=0.5),
+                    A.HueSaturationValue(p=0.5),
+                    A.RGBShift(p=0.5),
+                    A.ChannelShuffle(p=0.5),
+                ],
+                p=1,
+            ),
+            A.CoarseDropout(p=0.5),
+            A.ColorJitter(p=0.3),
+            A.RandomBrightnessContrast(p=0.7),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], ),
+            albumentations.pytorch.transforms.ToTensorV2(),
+        ]
+        )
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
-        return self.transform(image) # a = BaseAugmentation(resize, mean, std, **) INIT
+        return self.transform(image=image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
 
 class AlbuAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = albumentations.Compose([
-            albumentations.Resize(resize[0],resize[1]),
+            albumentations.Resize(224,224),
             albumentations.LongestMaxSize(max_size=max(resize)),
             albumentations.PadIfNeeded(min_height=max(resize),
                             min_width=max(resize),
@@ -79,10 +104,9 @@ class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
 
         self.transform = transforms.Compose([
-            # CenterCrop((320, 256)),
-            # Resize(resize, Image.BILINEAR),
-            # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
-            RandomHorizontalFlip(p=0.5),
+            CenterCrop((320, 256)),
+            Resize(resize, Image.BILINEAR),
+            ColorJitter(0.2, 0.2, 0.2, 0.2), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             # Grayscale(num_output_channels=3),
             ToTensor(),
             Normalize(mean=mean, std=std),
@@ -124,9 +148,9 @@ class AgeLabels(int, Enum):
         except Exception:
             raise ValueError(f"Age value should be numeric, {value}")
 
-        if value < 30:
+        if value < 27:
             return cls.YOUNG
-        elif value < 60:
+        elif value < 57:
              return cls.MIDDLE
         else:
             return cls.OLD
@@ -194,8 +218,9 @@ class MaskBaseDataset(Dataset):
     mask_labels = []
     gender_labels = []
     age_labels = []
+    # mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809)
     # default mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)
-    def __init__(self, data_dir, flag_strat, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
+    def __init__(self, data_dir, flag_strat,  mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246), val_ratio=0.2, train_csv_path = '/opt/ml/input/data/train/train.csv'):
         self.data_dir = data_dir
         self.mean = mean
         self.std = std
@@ -288,7 +313,7 @@ class MaskBaseDataset(Dataset):
 
     def __getitem__(self, index):
         assert self.transform is not None, ".set_tranform 메소드를 이용하여 transform 을 주입해주세요"
-
+        # print("debug")
         image = self.read_image(index)
         mask_label = self.get_mask_label(index)
         gender_label = self.get_gender_label(index)
@@ -311,18 +336,20 @@ class MaskBaseDataset(Dataset):
     def get_age_label(self, index) -> AgeLabels:
         return self.age_labels[index]
 
-    def read_image(self, index): 
-        image_path = self.image_paths[index]
-        return Image.open(image_path)
-
-    # def read_image(self, index): albumentation사용 시 read_image
+    # def read_image(self, index): 
     #     image_path = self.image_paths[index]
-    #     if str(type(self.transform)) == "<class 'dataset.AlbuAugmentation'>": # albumentation는 numpy형 이미지를 이용
-    #         transformed_image = cv2.imread(image_path)
-    #         transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
-    #         return transformed_image
-        
     #     return Image.open(image_path)
+
+    def read_image(self, index): #albumentation사용 시 read_image
+        image_path = self.image_paths[index]
+        # print(type(self.transform))
+        if str(type(self.transform)) == "<class 'dataset.BaseAugmentation'>": # albumentation는 numpy형 이미지를 이용
+            # print("debug")
+            transformed_image = cv2.imread(image_path)
+            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
+            return transformed_image
+        
+        return Image.open(image_path)
 
     @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
@@ -424,19 +451,20 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
     def split_dataset(self) -> List[Subset]: # train = 2160, val = 540
         return [Subset(self, indices) for phase, indices in self.indices.items()]
 
-
 class TestDataset(Dataset):
-    def __init__(self, img_paths, resize, mean=(0.53844445, 0.53370496, 0.51989678), std=(0.5911242, 0.58930196, 0.58084809)):
+    def __init__(self, img_paths,resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = transforms.Compose([
             # CenterCrop((320, 256)),
-            # Resize(resize, Image.BILINEAR),
+            Resize(resize, Image.BILINEAR),
             # ColorJitter(0.1, 0.1, 0.1, 0.1), # 밝기, 명도, 채도, 색조를 10%씩 +- 변화
             RandomHorizontalFlip(p=0.5),
-            # Grayscale(num_output_channels=3),
             ToTensor(),
-            Normalize(mean=mean, std=std),
+            # RandomGrayscale,
+            # Grayscale(num_output_channels=3),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
+        # self.transform = CustomAugmentation
 
     def __getitem__(self, index):
         image = Image.open(self.img_paths[index]) 
@@ -447,3 +475,4 @@ class TestDataset(Dataset):
 
     def __len__(self):
         return len(self.img_paths)
+

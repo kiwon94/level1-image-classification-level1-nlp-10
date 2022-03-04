@@ -27,6 +27,82 @@ from dataset import MaskBaseDataset
 from loss import create_criterion
 from torchsampler import ImbalancedDatasetSampler
 
+import numpy as np
+import torch
+# from .FocalLoss import FocalLoss
+# from .label_smoothing import LabelSmoothingLoss
+
+def rand_bbox(size, lam):  # size : [Batch_size, Channel, Width, Height]
+    W = size[2]
+    H = size[3]
+    cut_rat = np.sqrt(1. - lam)  # 패치 크기 비율
+    cut_w = np.int(W * cut_rat)
+    cut_h = np.int(H * cut_rat)
+
+    # 패치의 중앙 좌표 값 cx, cy
+    cx = np.random.randint(W)
+    cy = np.random.randint(H)
+
+    # 패치 모서리 좌표 값
+    bbx1 = 0
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+    bbx2 = W
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, bby2
+
+def cutmix(batch, alpha, vertical, vertical_half):
+    # print(data)
+    data, targets = batch
+    data = data['image']
+
+    if vertical_half:
+        lam = 0.5
+    else:
+        lam = np.random.beta(alpha, alpha)
+
+    if not vertical:
+        indices = torch.randperm(data.size(0))
+        shuffled_data = data[indices]
+        shuffled_targets = targets[indices]
+
+        image_h, image_w = data.shape[2:]
+        cx = np.random.uniform(0, image_w)
+        cy = np.random.uniform(0, image_h)
+        w = image_w * np.sqrt(1 - lam)
+        h = image_h * np.sqrt(1 - lam)
+        x0 = int(np.round(max(cx - w / 2, 0)))
+        x1 = int(np.round(min(cx + w / 2, image_w)))
+        y0 = int(np.round(max(cy - h / 2, 0)))
+        y1 = int(np.round(min(cy + h / 2, image_h)))
+
+        data[:, :, y0:y1, x0:x1] = shuffled_data[:, :, y0:y1, x0:x1]
+        targets = (targets, shuffled_targets, lam)
+
+        return data, targets
+    else:
+        rand_index = torch.randperm(data.size(0))
+        target_a = targets  # 원본 이미지 label
+        target_b = targets[rand_index]  # 패치 이미지 label
+        bbx1, bby1, bbx2, bby2 = rand_bbox(data.size(), lam)
+        data[:, :, bbx1:bbx2, bby1:bby2] = data[rand_index, :, bbx1:bbx2, bby1:bby2]
+        lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (data.size()[-1] * data.size()[-2]))
+        targets = (target_a, target_b, lam)
+        return data, targets
+
+
+
+class CutMixCollator:
+    def __init__(self, alpha, vertical=True, vertical_half=True):
+        self.alpha = alpha
+        self.vertical = vertical
+        self.vertical_half = vertical_half
+
+    def __call__(self, batch):
+        batch = torch.utils.data.dataloader.default_collate(batch)
+        batch = cutmix(batch, self.alpha, self.vertical, self.vertical_half)
+        return batch
+
 def get_label(dataset):
     label_list =[]
     for data in dataset:
@@ -42,41 +118,6 @@ def str2bool(s):
     else:
         raise RuntimeError('Boolean value expected')
 
-def cutmix(batch, alpha):
-    # data = torch.stack([datas['image2tensor'] for datas in batch])
-    # targets = torch.as_tensor([datas['label'] for datas in batch])
-    data, targets = batch
-    # print(data.shape)
-    # print(targets)
-    indices = torch.randperm(data.size(0))
-    shuffled_data = data[indices]
-    shuffled_targets = targets[indices]
-
-    lam = np.random.beta(alpha, alpha)
-
-    image_h, image_w = data.shape[2:]
-    cx = np.random.uniform(0, image_w)
-    cy = np.random.uniform(0, image_h)
-    w = image_w * np.sqrt(1 - lam)
-    h = image_h * np.sqrt(1 - lam)
-    x0 = int(np.round(max(cx - w / 2, 0)))
-    x1 = int(np.round(min(cx + w / 2, image_w)))
-    y0 = int(np.round(max(cy - h / 2, 0)))
-    y1 = int(np.round(min(cy + h / 2, image_h)))
-
-    data[:, :, y0:y1, x0:x1] = shuffled_data[:, :, y0:y1, x0:x1]
-    targets = (targets, shuffled_targets, lam)
-
-    return data, targets
-
-class CutMixCollator:
-    def __init__(self, alpha):
-        self.alpha = alpha
-
-    def __call__(self, batch):
-        batch = torch.utils.data.dataloader.default_collate(batch)
-        batch = cutmix(batch,self.alpha)
-        return batch
 
 def seed_everything(seed): # seed 고정
     torch.manual_seed(seed)
@@ -94,10 +135,22 @@ def get_lr(optimizer): # learning rate 불러오기
 
     
 def get_model(device, num_classes=18): #model 불러오기
+
+    if args.model == 'best':
+        model_module = getattr(import_module("model"), 'densenet2')
+        model = model_module(
+            pretrained = True,
+        ).to(device)
+
+        num_ftrs = model.classifier.in_features
+        model.classifier = nn.Linear(num_ftrs, num_classes)
+        model.load_state_dict(torch.load('/opt/ml/git4/exp241/best.pth'))
+        model = torch.nn.DataParallel(model) # 병렬처리
     # -- model
-    model_module = import_module("model")
-    model = model_module.get_model(args.model, num_classes).to(device)
-    model = torch.nn.DataParallel(model) # 병렬처리
+    else:
+        model_module = import_module("model")
+        model = model_module.get_model(args.model, num_classes).to(device)
+        model = torch.nn.DataParallel(model) # 병렬처리
     
     return model
 
@@ -247,18 +300,25 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         else:
             return super(GradualWarmupScheduler, self).step(epoch)
 
+import torchvision.models as models
+
+
+
 def train(data_dir, model_dir, args):
     # -- settings
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     scaler = torch.cuda.amp.GradScaler()
+    wandb.init(project="test-project", entity="boostcamp_nlp_10", config = vars(args))
 
     print("K fold CV :", args.KfoldCV)
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name)) # ./model/exp
 
+ 
     model = get_model(device)
+        
     dataset = get_dataset()
     transform = get_transform(dataset)
     dataset.set_transform(transform) # dataset에 transform 할당
@@ -271,13 +331,14 @@ def train(data_dir, model_dir, args):
     best_val_loss = np.inf # 무한
     best_val_f1 = 0
 
-    early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
+    
 
     # train start
     if args.KfoldCV == True:
         stratified_kfold = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
         for i,(train_idx, valid_idx) in enumerate(stratified_kfold.split(dataset.train_df, dataset.train_df['folder_class'])):
             
+            # Stratified Kfold가 실제로 기능하는지 알아보는 코드
             # print(i)
             # print(f"train_len: {len(train_idx)}")
             # print(f"valid_len: {len(valid_idx)}")
@@ -340,13 +401,14 @@ def train(data_dir, model_dir, args):
             best_val_acc = 0
             best_val_loss = np.inf # 무한
             best_val_f1 = 0
-
+            early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
             for epoch in range(args.epochs): # epoch 
                 # train loop
                 model.train()
                 loss_value = 0
                 matches = 0
                 for idx, (inputs,labels) in enumerate(train_loader):
+                    inputs= inputs['image']
                     inputs = inputs.to(device)
                     # Check this train procedure using Cutmix
                     # If it is, divide labels into three parts
@@ -422,7 +484,7 @@ def train(data_dir, model_dir, args):
                     val_labels = []
                     figure = None
                     for val_batch in val_loader:
-                        inputs= val_batch[0]
+                        inputs= val_batch[0]['image']
                         labels = val_batch[1]
                         # inputs = inputs.type(torch.FloatTensor).to(device)
                         inputs = inputs.to(device)
@@ -451,8 +513,9 @@ def train(data_dir, model_dir, args):
                     val_f1 = f1_score(val_target, val_labels, average='macro')
 
                     if best_val_loss > val_loss:
-                        print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                        torch.save(model.module.state_dict(), f"{save_dir}/{i:02}_{epoch:03}_{val_acc:4.2%}_{val_loss:4.2}.pth")
+                        print(f"New best model for val loss : {val_loss:4.2%}! saving the best model")
+                        torch.save(model.module.state_dict(), f"{save_dir}/{i+1:02}_{epoch:03}_{val_acc:4.2%}_{val_f1:4.2}_{val_loss:4.2}.pth")
+                        print(f"New best model for val accuracy : {val_acc:4.2%}!")
                         best_val_loss = val_loss
 
                     if best_val_acc < val_acc:
@@ -476,7 +539,7 @@ def train(data_dir, model_dir, args):
                     logger.add_scalar("Val/f1", val_f1, epoch)
                     logger.add_figure("results", figure, epoch) # figure tensorboard에 저장
 
-                    wandb.log({"Train/loss": train_loss, "Train/accuracy": train_acc})
+                    wandb.log({"Val/loss": val_loss, "Val/accuracy":val_acc, "Val/f1": val_f1, "results": figure})
                     early_stopping(val_loss, model)
 
                     if early_stopping.early_stop:
@@ -716,18 +779,18 @@ if __name__ == '__main__':
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=100, help='number of epochs to train (default: 1)')
     parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskSplitByProfileDataset)')
     parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
-    parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
+    parser.add_argument("--resize", nargs="+", type=int, default=(160, 128), help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=32, help='input batch size for training (default: 64)')
     parser.add_argument('--valid_batch_size', type=int, default=32, help='input batch size for validing (default: 1000)')
     parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (default: 1e-3)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
     parser.add_argument('--criterion', type=str, default='focal', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=3, help='learning rate scheduler deacy step (default: 20)')
+    parser.add_argument('--lr_decay_step', type=int, default=1, help='learning rate scheduler deacy step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
 
@@ -735,21 +798,21 @@ if __name__ == '__main__':
     parser.add_argument('--steplr_gamma', type=float, default= 0.5, help='StepLR gamma(default: 0.5)')
 
     parser.add_argument('--pretrained', type=str2bool, default=True, help='use pretrained model (default : False)')
-    parser.add_argument('--early_stop', type=int, default=1, help='early stop patience (default: 10)')
-    parser.add_argument('--sampler', type=str, default='weight', help='sampler type (default: imbalanced)')
+    parser.add_argument('--early_stop', type=int, default=2, help='early stop patience (default: 10)')
+    parser.add_argument('--sampler', type=str, default='weighted', help='sampler type (default: imbalanced)')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
 
     # Bag of tricks args
-    parser.add_argument('--LR_scheduler', type=str, default='GradualWarmupScheduler', help='using cosine LR scheduler')
+    parser.add_argument('--LR_scheduler', type=str, default='StepLR', help='using cosine LR scheduler')
     parser.add_argument('--precision', type=str2bool, default=True, help='using cosine FP16 precision')
 
     # Kfold CV
     parser.add_argument('--KfoldCV', type=str2bool, default=True, help='using KfoldCV, default is True')
 
-    parser.add_argument('--use_cutmix', type=str2bool, default=True)
+    parser.add_argument('--use_cutmix', type=str2bool, default=False)
     parser.add_argument('--cutmix_alpha', type=float, default=1.0)
     # Stratify & Kfold CV 관련 옵션 tip
     # 만약 Kfold를 안하지만 strat을 하고 싶다면 --KfoldCV = False

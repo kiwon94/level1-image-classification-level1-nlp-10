@@ -28,7 +28,7 @@ def kfold_load_model(saved_model, num_classes, device):
     best_val_loss = np.inf
     best_model_path=''
     for models in modelfile_list:
-        _, _, val_acc, val_loss = models.split('_')
+        _, _, _, _, val_loss = models.split('_')
         val_loss = float(val_loss.split('.p')[0])
         if val_loss<best_val_loss:
             best_model_path = models
@@ -89,7 +89,7 @@ def inference(data_dir, model_dir, output_dir, args):
             preds.extend(pred.cpu().numpy())
 
     info['ans'] = preds
-    info.to_csv(os.path.join(output_dir, f'output3.csv'), index=False)
+    info.to_csv(os.path.join(output_dir, f'output12.csv'), index=False)
     print(f'Inference Done!')
 
 
@@ -97,9 +97,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Data and model checkpoints directories
-    parser.add_argument('--batch_size', type=int, default=500, help='input batch size for validing (default: 1000)')
-    parser.add_argument("--resize", nargs="+", type=int, default=(128, 96), help='resize size for image when training')
-    parser.add_argument('--model', type=str, default='resnet101', help='model type (default: BaseModel)')
+    parser.add_argument('--batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
+    parser.add_argument("--resize", nargs="+", type=int, default=(224, 224), help='resize size for image when training')
+    parser.add_argument('--model', type=str, default='efficientnet_b4', help='model type (default: BaseModel)')
     parser.add_argument('--KfoldCV', type=str2bool, default=True, help='using KfoldCV, default is True')
 
     # Container environment

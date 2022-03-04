@@ -4,7 +4,9 @@ import torch.nn.functional as F
 import torchvision
 import numpy as np
 import timm
-
+from efficientnet_pytorch import EfficientNet
+import torchvision.models as models
+densenet2 = models.densenet201
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -154,12 +156,14 @@ def efficientnet_b3(classes):
     return effnet
 
 def efficientnet_b4(classes):
-    effnet = timm.EfficientNet.from_pretrained('efficientnet-b4', num_classes=classes)
-    return effnet
+    model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=classes)
+    
+    return model
 
 def efficientnet_b7(classes):
-    effnet = timm.EfficientNet.from_pretrained('efficientnet-b7', num_classes=classes)
-    return effnet
+    model = EfficientNet.from_pretrained('efficientnet-b7', num_classes=classes)
+    
+    return model
 
 def get_model(model_name:str, classes:int):
     """[summary]
