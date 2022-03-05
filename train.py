@@ -300,9 +300,6 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         else:
             return super(GradualWarmupScheduler, self).step(epoch)
 
-import torchvision.models as models
-
-
 
 def train(data_dir, model_dir, args):
     # -- settings
@@ -318,7 +315,6 @@ def train(data_dir, model_dir, args):
 
  
     model = get_model(device)
-        
     dataset = get_dataset()
     transform = get_transform(dataset)
     dataset.set_transform(transform) # dataset에 transform 할당
@@ -326,28 +322,30 @@ def train(data_dir, model_dir, args):
     scheduler = get_scheduler(optimizer)
     logger = get_logger(save_dir)
     val_ratio = args.val_ratio
-
+    
     best_val_acc = 0
     best_val_loss = np.inf # 무한
     best_val_f1 = 0
-
-    
+    early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
 
     # train start
     if args.KfoldCV == True:
         stratified_kfold = StratifiedKFold(n_splits=int(1/val_ratio), shuffle=True, random_state=42)
         for i,(train_idx, valid_idx) in enumerate(stratified_kfold.split(dataset.train_df, dataset.train_df['folder_class'])):
-            
-            # Stratified Kfold가 실제로 기능하는지 알아보는 코드
-            # print(i)
-            # print(f"train_len: {len(train_idx)}")
-            # print(f"valid_len: {len(valid_idx)}")
-            # print(f"train label Zero :{np.sum(dataset.train_df['folder_class'][train_idx]==0)/len(train_idx)}, train label One : {np.sum(dataset.train_df['folder_class'][train_idx]==1)/len(train_idx)}, train label Two : {np.sum(dataset.train_df['folder_class'][train_idx]==2)/len(train_idx)}, train label Three : {np.sum(dataset.train_df['folder_class'][train_idx]==3)/len(train_idx)}, train label Four : {np.sum(dataset.train_df['folder_class'][train_idx]==4)/len(train_idx)}, train label Five : {np.sum(dataset.train_df['folder_class'][train_idx]==5)/len(train_idx)}")
-            # print(f"val label Zero : {np.sum(dataset.train_df['folder_class'][valid_idx]==0)/len(valid_idx)}, val label One : {np.sum(dataset.train_df['folder_class'][valid_idx]==1)/len(valid_idx)}, train label Two : {np.sum(dataset.train_df['folder_class'][valid_idx]==2)/len(valid_idx)}, train label Three : {np.sum(dataset.train_df['folder_class'][valid_idx]==3)/len(valid_idx)}, train label Four : {np.sum(dataset.train_df['folder_class'][valid_idx]==4)/len(valid_idx)}, train label Five : {np.sum(dataset.train_df['folder_class'][valid_idx]==5)/len(valid_idx)}")
-            
-            print("{:=^100}".format(f" k-fold: {i+1}/{int(1/val_ratio)} "))
+            model = get_model(device)
+            dataset = get_dataset()
+            transform = get_transform(dataset)
+            dataset.set_transform(transform) # dataset에 transform 할당
+    
+            best_val_acc = 0
+            best_val_loss = np.inf # 무한
+            best_val_f1 = 0
+            early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
             dataset.setup(train_idx, valid_idx)
             train_set, val_set = dataset.split_dataset()
+
+            print("{:=^100}".format(f" k-fold: {i+1}/{int(1/val_ratio)} "))
+            
 
             if args.use_cutmix==True:
                 print('using CutMix!')
@@ -360,19 +358,13 @@ def train(data_dir, model_dir, args):
             imbalanced_sampler = ImbalancedDatasetSampler(dataset=train_set, callback_get_label=get_label)
 
             # weight sampler
-        
-            # y_train_indices = train_set.indices
-            # print(len(train_set))
             y_train = []
             for data in train_set:
                 y_train.append(data[1])
 
             class_sample_count = np.array([len(np.where(y_train == t)[0]) for t in np.unique(y_train)])
-            # print(class_sample_count)
             weight = 1. / class_sample_count
-            # print(weight)
             samples_weight = np.array([weight[t] for t in y_train])
-            # print(samples_weight)
             samples_weight = torch.from_numpy(samples_weight)
             weight_sampler = torch.utils.data.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
 
@@ -402,6 +394,7 @@ def train(data_dir, model_dir, args):
             best_val_loss = np.inf # 무한
             best_val_f1 = 0
             early_stopping = EarlyStopping(patience = args.early_stop, verbose = True) # early stopping
+            
             for epoch in range(args.epochs): # epoch 
                 # train loop
                 model.train()
@@ -555,13 +548,7 @@ def train(data_dir, model_dir, args):
                         json.dump(config, config_json, ensure_ascii=False, indent=4)
                         config_json.close()
                         break
-                    print() # ?
-            model = get_model(device) # fold 종료 후 model 재정의
-            criterion, optimizer = get_loss_optim(model)
-            scheduler = get_scheduler(optimizer)        
-            best_val_acc = 0
-            best_val_loss = np.inf # 무한
-            best_val_f1 = 0
+    
 
     else: # no k fold
         train_idx, valid_idx = train_test_split(dataset.train_df, stratify=dataset.train_df['folder_class'], test_size=val_ratio)
@@ -616,6 +603,7 @@ def train(data_dir, model_dir, args):
             pin_memory=use_cuda,
             drop_last=True, # 왜 True로 되어 있지?
         )
+
         for epoch in range(args.epochs): # epoch 
            # train loop
             model.train()
@@ -766,7 +754,7 @@ def train(data_dir, model_dir, args):
                     json.dump(config, config_json, ensure_ascii=False, indent=4)
                     config_json.close()
                     break
-                print() # ?
+
 
 
 

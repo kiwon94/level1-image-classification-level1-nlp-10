@@ -26,7 +26,7 @@ def is_image_file(filename): #file이 IMG_EXTENSIONS으로 안끝나면 False
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-class BaseAugmentation:
+class BaseAugmentation: # BaseAugmentation with Albumetation
     def __init__(self, resize, mean, std, **args):
         self.transform = A.Compose(
         [
@@ -63,25 +63,6 @@ class BaseAugmentation:
     def __call__(self, image): # init은 생성할 때, call은 호출될 때 실행
         return self.transform(image=image) # a = BaseAugmentation(resize, mean, std, **) INIT
                                      # a(image) CALL
-
-class AlbuAugmentation:
-    def __init__(self, resize, mean, std, **args):
-        self.transform = albumentations.Compose([
-            albumentations.Resize(224,224),
-            albumentations.LongestMaxSize(max_size=max(resize)),
-            albumentations.PadIfNeeded(min_height=max(resize),
-                            min_width=max(resize),
-                            border_mode=cv2.BORDER_CONSTANT),
-            # albumentations.RandomCrop(width=resize[0], height=resize[1]),
-            albumentations.OneOf([albumentations.ShiftScaleRotate(rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT),
-                                albumentations.VerticalFlip(p=1)            
-                                ], p=1),
-            albumentations.OneOf([albumentations.MotionBlur(p=1),
-                                albumentations.OpticalDistortion(p=1),
-                                albumentations.GaussNoise(p=1)                 
-                                ], p=1),
-            albumentations.Normalize(mean=mean, std=std, max_pixel_value=255),
-            albumentations.pytorch.transforms.ToTensorV2()])
 
 class AddGaussianNoise(object):
     """

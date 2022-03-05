@@ -28,10 +28,10 @@ class EarlyStopping:
 
         score = val_loss
 
-        if self.best_score is None:
+        if self.best_score is np.Inf:
             self.best_score = score
             # self.save_checkpoint(val_loss, model)
-        elif score > self.best_score + self.delta:
+        elif score >= self.best_score + self.delta:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
