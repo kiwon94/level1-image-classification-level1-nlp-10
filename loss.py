@@ -4,6 +4,34 @@ import torch.nn.functional as F
 
 
 # https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/8
+
+
+class CutMix_Focal:
+    def __init__(self):
+        self.criterion = FocalLoss(weight=None,
+                 gamma=2., reduction='mean')
+
+    def __call__(self, preds, targets):
+        targets1, targets2, lam = targets
+        return lam * self.criterion(
+            preds, targets1) + (1 - lam) * self.criterion(preds, targets2)
+
+class CutMix_CE:
+    def __init__(self):
+        self.criterion = nn.CrossEntropyLoss(reduction='mean')
+    def __call__(self, preds, targets):
+        targets1, targets2, lam = targets
+        return lam * self.criterion(
+            preds, targets1) + (1 - lam) * self.criterion(preds, targets2)
+
+class CutMix_F1:
+    def __init__(self):
+        self.criterion = F1Loss(classes=18, epsilon=1e-7)
+
+    def __call__(self, preds, targets):
+        targets1, targets2, lam = targets
+        return lam * self.criterion(preds, targets1) + (1 - lam) * self.criterion(preds, targets2)
+
 class FocalLoss(nn.Module):
     def __init__(self, weight=None,
                  gamma=2., reduction='mean'):
@@ -69,7 +97,10 @@ _criterion_entrypoints = {
     'cross_entropy': nn.CrossEntropyLoss,
     'focal': FocalLoss,
     'label_smoothing': LabelSmoothingLoss,
-    'f1': F1Loss
+    'f1': F1Loss,
+    'Cutmix_cross_entropy' : CutMix_CE,
+    'Cutmix_focal' : CutMix_Focal,
+    'Cutmix_f1' : CutMix_F1
 }
 
 
